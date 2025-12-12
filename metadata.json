@@ -1,0 +1,5 @@
+{
+  "name": "CardioEDAD",
+  "description": "Uma plataforma abrangente de monitoramento diário para pacientes hospitalizados, com rastreamento de sinais vitais, comparações de resultados laboratoriais e insights clínicos baseados em IA.",
+  "requestFramePermissions": []
+}
