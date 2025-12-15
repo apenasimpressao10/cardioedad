@@ -165,7 +165,7 @@ const DailyLogForm: React.FC<DailyLogFormProps> = ({ onSave, onCancel, initialPr
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
+    <form onSubmit={handleSubmit} className="space-y-6 pb-20 md:pb-0">
       
       {/* Date */}
       <div>
@@ -175,7 +175,7 @@ const DailyLogForm: React.FC<DailyLogFormProps> = ({ onSave, onCancel, initialPr
           required
           value={date}
           onChange={(e) => setDate(e.target.value)}
-          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-medical-500 focus:ring-medical-500 sm:text-sm border p-2"
+          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-medical-500 focus:ring-medical-500 text-base sm:text-sm border p-3"
         />
       </div>
 
@@ -185,30 +185,32 @@ const DailyLogForm: React.FC<DailyLogFormProps> = ({ onSave, onCancel, initialPr
            <h3 className="text-md font-medium text-gray-900 border-b border-blue-200 pb-1 mb-3 flex items-center gap-2">
              <Droplets size={18} className="text-blue-500" /> Balanço Hídrico (24h)
            </h3>
-           <div className="flex gap-4 items-end">
+           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="flex-1">
                  <label className="text-xs text-gray-500 uppercase font-bold">Entrada (ml)</label>
                  <input 
-                    type="number" 
+                    type="number"
+                    inputMode="numeric" 
                     value={fluidBalance.intake || ''} 
                     onChange={e => setFluidBalance({...fluidBalance, intake: parseFloat(e.target.value) || 0})}
-                    className="w-full border rounded p-2 focus:border-blue-500 outline-none" 
+                    className="w-full border rounded p-3 text-base sm:text-sm focus:border-blue-500 outline-none" 
                     placeholder="0"
                  />
               </div>
               <div className="flex-1">
                  <label className="text-xs text-gray-500 uppercase font-bold">Saída (ml)</label>
                  <input 
-                    type="number" 
+                    type="number"
+                    inputMode="numeric" 
                     value={fluidBalance.output || ''} 
                     onChange={e => setFluidBalance({...fluidBalance, output: parseFloat(e.target.value) || 0})}
-                    className="w-full border rounded p-2 focus:border-blue-500 outline-none" 
+                    className="w-full border rounded p-3 text-base sm:text-sm focus:border-blue-500 outline-none" 
                     placeholder="0"
                  />
               </div>
               <div className="flex-1">
                  <label className="text-xs text-gray-500 uppercase font-bold">Balanço (ml)</label>
-                 <div className={`w-full border rounded p-2 bg-gray-100 font-bold text-center ${fluidBalance.net > 0 ? 'text-blue-600' : fluidBalance.net < 0 ? 'text-orange-600' : 'text-gray-600'}`}>
+                 <div className={`w-full border rounded p-3 text-base sm:text-sm bg-gray-100 font-bold text-center ${fluidBalance.net > 0 ? 'text-blue-600' : fluidBalance.net < 0 ? 'text-orange-600' : 'text-gray-600'}`}>
                     {fluidBalance.net > 0 ? '+' : ''}{fluidBalance.net}
                  </div>
               </div>
@@ -219,34 +221,34 @@ const DailyLogForm: React.FC<DailyLogFormProps> = ({ onSave, onCancel, initialPr
       {/* Vital Signs */}
       <div>
         <h3 className="text-md font-medium text-gray-900 border-b pb-1 mb-3">Sinais Vitais</h3>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
            <div>
              <label className="text-xs text-gray-500 uppercase">Temp (°C)</label>
-             <input type="text" value={vitals.temperature} onChange={e => setVitals({...vitals, temperature: e.target.value})} className="w-full border rounded p-1" placeholder="36.5" />
+             <input inputMode="decimal" type="text" value={vitals.temperature} onChange={e => setVitals({...vitals, temperature: e.target.value})} className="w-full border rounded p-3 text-base sm:text-sm" placeholder="36.5" />
            </div>
            <div>
              <label className="text-xs text-gray-500 uppercase">FC (bpm)</label>
-             <input type="text" value={vitals.heartRate} onChange={e => setVitals({...vitals, heartRate: e.target.value})} className="w-full border rounded p-1" placeholder="72" />
+             <input inputMode="numeric" type="text" value={vitals.heartRate} onChange={e => setVitals({...vitals, heartRate: e.target.value})} className="w-full border rounded p-3 text-base sm:text-sm" placeholder="72" />
            </div>
            <div>
              <label className="text-xs text-gray-500 uppercase">FR (irpm)</label>
-             <input type="text" value={vitals.respiratoryRate} onChange={e => setVitals({...vitals, respiratoryRate: e.target.value})} className="w-full border rounded p-1" placeholder="16" />
+             <input inputMode="numeric" type="text" value={vitals.respiratoryRate} onChange={e => setVitals({...vitals, respiratoryRate: e.target.value})} className="w-full border rounded p-3 text-base sm:text-sm" placeholder="16" />
            </div>
            <div>
              <label className="text-xs text-gray-500 uppercase">PA Sistólica</label>
-             <input type="text" value={vitals.bloodPressureSys} onChange={e => setVitals({...vitals, bloodPressureSys: e.target.value})} className="w-full border rounded p-1" placeholder="120" />
+             <input inputMode="numeric" type="text" value={vitals.bloodPressureSys} onChange={e => setVitals({...vitals, bloodPressureSys: e.target.value})} className="w-full border rounded p-3 text-base sm:text-sm" placeholder="120" />
            </div>
            <div>
              <label className="text-xs text-gray-500 uppercase">PA Diastólica</label>
-             <input type="text" value={vitals.bloodPressureDia} onChange={e => setVitals({...vitals, bloodPressureDia: e.target.value})} className="w-full border rounded p-1" placeholder="80" />
+             <input inputMode="numeric" type="text" value={vitals.bloodPressureDia} onChange={e => setVitals({...vitals, bloodPressureDia: e.target.value})} className="w-full border rounded p-3 text-base sm:text-sm" placeholder="80" />
            </div>
            <div>
              <label className="text-xs text-gray-500 uppercase">Sat O2 (%)</label>
-             <input type="text" value={vitals.oxygenSaturation} onChange={e => setVitals({...vitals, oxygenSaturation: e.target.value})} className="w-full border rounded p-1" placeholder="98" />
+             <input inputMode="numeric" type="text" value={vitals.oxygenSaturation} onChange={e => setVitals({...vitals, oxygenSaturation: e.target.value})} className="w-full border rounded p-3 text-base sm:text-sm" placeholder="98" />
            </div>
            <div>
-             <label className="text-xs text-gray-500 uppercase">Glicemia (mg/dL)</label>
-             <input type="text" value={vitals.capillaryBloodGlucose} onChange={e => setVitals({...vitals, capillaryBloodGlucose: e.target.value})} className="w-full border rounded p-1" placeholder="98" />
+             <label className="text-xs text-gray-500 uppercase">Glicemia</label>
+             <input inputMode="numeric" type="text" value={vitals.capillaryBloodGlucose} onChange={e => setVitals({...vitals, capillaryBloodGlucose: e.target.value})} className="w-full border rounded p-3 text-base sm:text-sm" placeholder="98" />
            </div>
         </div>
       </div>
@@ -258,7 +260,7 @@ const DailyLogForm: React.FC<DailyLogFormProps> = ({ onSave, onCancel, initialPr
           rows={4}
           value={notes}
           onChange={e => setNotes(e.target.value)}
-          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-medical-500 focus:ring-medical-500 sm:text-sm border p-2"
+          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-medical-500 focus:ring-medical-500 text-base sm:text-sm border p-3"
           placeholder="Insira observações detalhadas..."
         />
       </div>
@@ -267,14 +269,14 @@ const DailyLogForm: React.FC<DailyLogFormProps> = ({ onSave, onCancel, initialPr
       <div>
         <div className="flex justify-between items-center mb-2">
             <h3 className="text-md font-medium text-gray-900">Prescrições</h3>
-            <button type="button" onClick={addPrescription} className="text-sm text-medical-600 flex items-center hover:text-medical-800"><Plus size={16} className="mr-1"/> Adicionar</button>
+            <button type="button" onClick={addPrescription} className="text-sm text-medical-600 flex items-center hover:text-medical-800 p-2"><Plus size={18} className="mr-1"/> Adicionar</button>
         </div>
-        <ul className="space-y-2">
+        <ul className="space-y-3">
             {prescriptions.map((item, idx) => (
                 <li key={idx} className="flex gap-2">
-                    <span className="text-gray-400 self-center">•</span>
-                    <input type="text" value={item} onChange={e => handlePrescriptionChange(idx, e.target.value)} className="flex-1 border-b border-gray-200 focus:border-medical-500 outline-none py-1 bg-transparent" placeholder="Medicamento, dosagem, frequência" />
-                    <button type="button" onClick={() => removePrescription(idx)} className="text-gray-400 hover:text-red-500"><Trash2 size={16} /></button>
+                    <span className="text-gray-400 self-center hidden sm:inline">•</span>
+                    <input type="text" value={item} onChange={e => handlePrescriptionChange(idx, e.target.value)} className="flex-1 border-b border-gray-200 focus:border-medical-500 outline-none py-2 bg-transparent text-base sm:text-sm" placeholder="Medicamento, dosagem, frequência" />
+                    <button type="button" onClick={() => removePrescription(idx)} className="text-gray-400 hover:text-red-500 p-2"><Trash2 size={20} /></button>
                 </li>
             ))}
         </ul>
@@ -284,9 +286,9 @@ const DailyLogForm: React.FC<DailyLogFormProps> = ({ onSave, onCancel, initialPr
       <div>
         <div className="flex justify-between items-center mb-2">
             <h3 className="text-md font-medium text-gray-900">Condutas Diárias</h3>
-            <button type="button" onClick={addConduct} className="text-sm text-medical-600 flex items-center hover:text-medical-800"><Plus size={16} className="mr-1"/> Adicionar</button>
+            <button type="button" onClick={addConduct} className="text-sm text-medical-600 flex items-center hover:text-medical-800 p-2"><Plus size={18} className="mr-1"/> Adicionar</button>
         </div>
-        <ul className="space-y-2">
+        <ul className="space-y-3">
             {conducts.map((item, idx) => (
                 <li key={idx} className="flex gap-2 items-center">
                     <div className="flex items-center h-full pt-1">
@@ -294,7 +296,7 @@ const DailyLogForm: React.FC<DailyLogFormProps> = ({ onSave, onCancel, initialPr
                           type="checkbox" 
                           checked={item.verified} 
                           onChange={e => handleConductChange(idx, 'verified', e.target.checked)}
-                          className="w-4 h-4 text-medical-600 border-gray-300 rounded focus:ring-medical-500 cursor-pointer"
+                          className="w-5 h-5 sm:w-4 sm:h-4 text-medical-600 border-gray-300 rounded focus:ring-medical-500 cursor-pointer"
                           title="Verificado/Concluído"
                        />
                     </div>
@@ -302,10 +304,10 @@ const DailyLogForm: React.FC<DailyLogFormProps> = ({ onSave, onCancel, initialPr
                       type="text" 
                       value={item.description} 
                       onChange={e => handleConductChange(idx, 'description', e.target.value)} 
-                      className="flex-1 border-b border-gray-200 focus:border-medical-500 outline-none py-1 bg-transparent" 
+                      className="flex-1 border-b border-gray-200 focus:border-medical-500 outline-none py-2 bg-transparent text-base sm:text-sm" 
                       placeholder="Descrição da conduta" 
                     />
-                    <button type="button" onClick={() => removeConduct(idx)} className="text-gray-400 hover:text-red-500"><Trash2 size={16} /></button>
+                    <button type="button" onClick={() => removeConduct(idx)} className="text-gray-400 hover:text-red-500 p-2"><Trash2 size={20} /></button>
                 </li>
             ))}
         </ul>
@@ -317,13 +319,13 @@ const DailyLogForm: React.FC<DailyLogFormProps> = ({ onSave, onCancel, initialPr
             <h3 className="text-md font-medium text-gray-900 flex items-center gap-2">
                 <Beaker size={18} /> Resultados de Exames
             </h3>
-            <button type="button" onClick={addLab} className="text-sm text-medical-600 flex items-center hover:text-medical-800">
-                <Plus size={16} className="mr-1"/> Outro Exame
+            <button type="button" onClick={addLab} className="text-sm text-medical-600 flex items-center hover:text-medical-800 p-2">
+                <Plus size={18} className="mr-1"/> Outro Exame
             </button>
         </div>
         
-        <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+        <div className="bg-gray-50 p-2 sm:p-4 rounded-lg border border-gray-200">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
                 {labs.map((lab, idx) => {
                     // Check if this lab is in the standard list
                     const isStandard = STANDARD_LABS.some(std => std.name === lab.testName);
@@ -336,13 +338,14 @@ const DailyLogForm: React.FC<DailyLogFormProps> = ({ onSave, onCancel, initialPr
                                 </label>
                                 <div className="flex items-baseline gap-1">
                                     <input 
-                                        type="text" 
+                                        type="text"
+                                        inputMode="decimal"
                                         value={lab.value} 
                                         onChange={e => updateLab(idx, 'value', e.target.value)} 
-                                        className="flex-1 min-w-0 border-b border-gray-300 focus:border-medical-500 outline-none text-sm font-medium py-0.5 text-center" 
+                                        className="flex-1 min-w-0 border-b border-gray-300 focus:border-medical-500 outline-none text-base sm:text-sm font-medium py-1 text-center" 
                                         placeholder="-" 
                                     />
-                                    <span className="text-[10px] text-gray-400 select-none w-8 text-right">{lab.unit}</span>
+                                    <span className="text-[10px] text-gray-400 select-none w-8 text-right truncate">{lab.unit}</span>
                                 </div>
                             </div>
                         );
@@ -353,31 +356,32 @@ const DailyLogForm: React.FC<DailyLogFormProps> = ({ onSave, onCancel, initialPr
                                 <button 
                                     type="button" 
                                     onClick={() => removeLab(idx)} 
-                                    className="absolute top-1 right-1 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                                    className="absolute top-1 right-1 text-gray-300 hover:text-red-500 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity p-1"
                                     tabIndex={-1}
                                 >
-                                    <Trash2 size={12} />
+                                    <Trash2 size={14} />
                                 </button>
                                 <input 
                                     type="text" 
                                     value={lab.testName} 
                                     onChange={e => updateLab(idx, 'testName', e.target.value)} 
-                                    className="text-[10px] text-medical-700 font-bold uppercase mb-1 w-full border-none p-0 focus:ring-0 placeholder-gray-300" 
+                                    className="text-[10px] text-medical-700 font-bold uppercase mb-1 w-full border-none p-0 focus:ring-0 placeholder-gray-300 bg-transparent" 
                                     placeholder="NOME DO EXAME"
                                 />
                                 <div className="flex items-baseline gap-1">
                                     <input 
-                                        type="text" 
+                                        type="text"
+                                        inputMode="decimal" 
                                         value={lab.value} 
                                         onChange={e => updateLab(idx, 'value', e.target.value)} 
-                                        className="flex-1 min-w-0 border-b border-gray-300 focus:border-medical-500 outline-none text-sm font-medium py-0.5 text-center" 
+                                        className="flex-1 min-w-0 border-b border-gray-300 focus:border-medical-500 outline-none text-base sm:text-sm font-medium py-1 text-center" 
                                         placeholder="Valor" 
                                     />
                                     <input
                                         type="text"
                                         value={lab.unit}
                                         onChange={e => updateLab(idx, 'unit', e.target.value)}
-                                        className="w-10 text-[10px] text-gray-500 text-right border-none p-0 focus:ring-0 placeholder-gray-300"
+                                        className="w-10 text-[10px] text-gray-500 text-right border-none p-0 focus:ring-0 placeholder-gray-300 bg-transparent"
                                         placeholder="Unid"
                                     />
                                 </div>
@@ -389,9 +393,9 @@ const DailyLogForm: React.FC<DailyLogFormProps> = ({ onSave, onCancel, initialPr
         </div>
       </div>
 
-      <div className="flex justify-end gap-3 pt-4 border-t">
-        <button type="button" onClick={onCancel} className="px-4 py-2 border rounded-md text-gray-700 hover:bg-gray-50">Cancelar</button>
-        <button type="submit" className="px-4 py-2 bg-medical-600 text-white rounded-md hover:bg-medical-700 flex items-center gap-2"><Save size={18} /> {initialData ? 'Atualizar Registro' : 'Salvar Registro'}</button>
+      <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 pt-4 border-t bg-white sticky bottom-0 sm:static p-2 sm:p-0">
+        <button type="button" onClick={onCancel} className="px-6 py-3 border rounded-md text-gray-700 hover:bg-gray-50 text-base font-medium w-full sm:w-auto">Cancelar</button>
+        <button type="submit" className="px-6 py-3 bg-medical-600 text-white rounded-md hover:bg-medical-700 flex items-center justify-center gap-2 text-base font-bold w-full sm:w-auto"><Save size={20} /> {initialData ? 'Atualizar' : 'Salvar'}</button>
       </div>
 
     </form>
