@@ -1,9 +1,25 @@
 import { GoogleGenAI } from "@google/genai";
 import { Patient } from "../types";
 
+// Helper to safely get API key in different environments (Vite, Node, etc.)
+const getApiKey = () => {
+  // Check for Vite environment variable
+  // @ts-ignore
+  if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_KEY) {
+    // @ts-ignore
+    return import.meta.env.VITE_API_KEY;
+  }
+  
+  // Check for Node/Process environment variable
+  if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
+    return process.env.API_KEY;
+  }
+
+  return '';
+};
+
 // Initialize the Gemini client
-// Note: In a real production app, ensure API_KEY is set in your environment variables.
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+const ai = new GoogleGenAI({ apiKey: getApiKey() });
 
 export const generateClinicalSummary = async (patient: Patient): Promise<string> => {
   try {
