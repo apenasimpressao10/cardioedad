@@ -48,6 +48,7 @@ import {
 import { Patient, DailyLog, LabResult, Attachment } from './types';
 import DailyLogForm from './components/DailyLogForm';
 import LabResultTable from './components/LabResultTable';
+import * as PatientService from './services/patientService';
 
 // Helper for temperature styling
 const getTemperatureStyle = (tempStr: string) => {
@@ -77,131 +78,6 @@ const getTemperatureStyle = (tempStr: string) => {
   return "text-gray-800";
 };
 
-// --- MOCK DATA INITIALIZATION ---
-const MOCK_PATIENTS: Patient[] = [
-  {
-    id: '1',
-    name: 'Roberto Silva',
-    age: 64,
-    gender: 'Masculino',
-    estimatedWeight: 82,
-    bedNumber: 'UTI-04',
-    unit: 'UTI',
-    status: 'active',
-    admissionDate: '2023-10-20',
-    admissionHistory: 'Paciente admitido via Pronto Socorro com quadro de dispneia progressiva aos médios esforços, associada a tosse produtiva e febre não aferida há 3 dias. Relata queda do estado geral e inapetência.',
-    personalHistory: [
-      'Hipertensão Arterial Sistêmica',
-      'Diabetes Mellitus Tipo 2',
-      'Ex-tabagista (20 anos/maço)'
-    ],
-    homeMedications: [
-      'Losartana 50mg 12/12h',
-      'Metformina 850mg 3x/dia',
-      'AAS 100mg 1x/dia'
-    ],
-    medicalPrescription: '1. Dieta Branda Hipossódica para diabético\n2. Soro Fisiológico 0,9% 1000ml EV contínuo a 42ml/h\n3. Ceftriaxona 2g EV 1x/dia (D3/7)\n4. Azitromicina 500mg EV 1x/dia (D3/5)\n5. Omeprazol 40mg EV 1x/dia pela manhã\n6. Dipirona 1g EV 6/6h se Dor ou Febre\n7. Plasil 10mg EV 8/8h se Náusea\n8. Heparina 5000UI SC 12/12h\n9. Glicemia Capilar 6/6h + Insulina Regular conforme esquema',
-    vasoactiveDrugs: 'Noradrenalina 0.15 mcg/kg/min (em desmame)',
-    sedationAnalgesia: 'Precedex 0.4 mcg/kg/h',
-    devices: 'CVC em VJD, PAM em Radial D, SNE para dieta',
-    diagnosticHypotheses: [
-      'Pneumonia Adquirida na Comunidade',
-      'Lesão Renal Aguda',
-      'Sepse de foco pulmonar'
-    ],
-    dailyLogs: [
-      {
-        id: '101',
-        date: '2023-10-22',
-        vitalSigns: { temperature: '38.5', heartRate: '92', respiratoryRate: '22', bloodPressureSys: '145', bloodPressureDia: '90', oxygenSaturation: '94', capillaryBloodGlucose: '180' },
-        notes: 'Paciente febril durante a noite. Tosse produtiva notada. Apetite reduzido.',
-        prescriptions: ['Ceftriaxona 2g IV diário', 'Azitromicina 500mg IV diário', 'Paracetamol 1g SN'],
-        conducts: [
-          { description: 'Raio-X de Tórax', verified: true }, 
-          { description: 'Hemoculturas', verified: true }
-        ],
-        labs: [
-            { testName: 'Leucócitos', value: '14.5', unit: 'x10^9/L', referenceRange: '4.0-11.0' },
-            { testName: 'PCR', value: '120', unit: 'mg/L', referenceRange: '<5' },
-            { testName: 'Creatinina', value: '110', unit: 'µmol/L', referenceRange: '60-110' }
-        ],
-        fluidBalance: { intake: 2500, output: 1800, net: 700 }
-      },
-      {
-        id: '102',
-        date: '2023-10-23',
-        vitalSigns: { temperature: '37.8', heartRate: '88-92', respiratoryRate: '20', bloodPressureSys: '138', bloodPressureDia: '85', oxygenSaturation: '95', capillaryBloodGlucose: '145' },
-        notes: 'Ligeira melhora na temperatura. SpO2 estável em cateter nasal a 2L.',
-        prescriptions: ['Ceftriaxona 2g IV diário', 'Azitromicina 500mg IV diário', 'Enoxaparina 40mg SC diário'],
-        conducts: [
-          { description: 'Avaliação fisioterapêutica', verified: false }
-        ],
-        labs: [
-            { testName: 'Leucócitos', value: '12.1', unit: 'x10^9/L', referenceRange: '4.0-11.0' },
-            { testName: 'PCR', value: '98', unit: 'mg/L', referenceRange: '<5' },
-            { testName: 'Creatinina', value: '105', unit: 'µmol/L', referenceRange: '60-110' }
-        ],
-        fluidBalance: { intake: 2200, output: 2400, net: -200 }
-      },
-      {
-        id: '103',
-        date: '2023-10-24',
-        vitalSigns: { temperature: '36.5-37.0', heartRate: '75-80', respiratoryRate: '18', bloodPressureSys: '130', bloodPressureDia: '80', oxygenSaturation: '97-98', capillaryBloodGlucose: '110' },
-        notes: 'Afebril hoje. Mobilizando-se para poltrona. Boa aceitação oral.',
-        prescriptions: ['Ceftriaxona 2g IV diário', 'Azitromicina 500mg IV diário'],
-        conducts: [
-          { description: 'Repetir Raio-X de Tórax', verified: false }
-        ],
-        labs: [
-            { testName: 'Leucócitos', value: '9.8', unit: 'x10^9/L', referenceRange: '4.0-11.0' },
-            { testName: 'PCR', value: '45', unit: 'mg/L', referenceRange: '<5' },
-            { testName: 'Creatinina', value: '95', unit: 'µmol/L', referenceRange: '60-110' }
-        ],
-        fluidBalance: { intake: 2000, output: 2100, net: -100 }
-      }
-    ],
-    attachments: []
-  },
-  {
-    id: '2',
-    name: 'Helena Pereira',
-    age: 78,
-    gender: 'Feminino',
-    estimatedWeight: 65,
-    bedNumber: 'ENF-12',
-    unit: 'Enfermaria',
-    status: 'active',
-    admissionDate: '2023-10-24',
-    admissionHistory: 'Transferida da UPA com relato de dispneia paroxística noturna e ortopneia. Edema de MMII ++/4+.',
-    personalHistory: ['Insuficiência Cardíaca (FE 35%)', 'Fibrilação Atrial Permanente', 'Hipotireoidismo'],
-    homeMedications: ['Carvedilol 6.25mg 12/12h', 'Furosemida 40mg cedo', 'Levotiroxina 50mcg'],
-    medicalPrescription: '1. Dieta Hipossódica com restrição hídrica (800ml/dia)\n2. Furosemida 40mg EV 12/12h\n3. Carvedilol 6.25mg VO 12/12h\n4. Levotiroxina 50mcg VO cedo (jejum)\n5. Enoxaparina 40mg SC 1x/dia',
-    diagnosticHypotheses: [
-      'Exacerbação de Insuficiência Cardíaca Congestiva',
-      'Fibrilação Atrial de alta resposta'
-    ],
-    dailyLogs: [
-        {
-        id: '201',
-        date: '2023-10-25',
-        vitalSigns: { temperature: '36.2', heartRate: '88', respiratoryRate: '19', bloodPressureSys: '130', bloodPressureDia: '80', oxygenSaturation: '93', capillaryBloodGlucose: '98' },
-        notes: 'Paciente estável, eupneica em ar ambiente. Diurese preservada após furosemida.',
-        prescriptions: ['Furosemida 40mg EV 12/12h', 'Carvedilol 6.25mg VO 12/12h'],
-        conducts: [
-          { description: 'Solicitar Ecocardiograma', verified: false },
-          { description: 'Ajuste de anticoagulação', verified: true }
-        ],
-        labs: [
-            { testName: 'Creatinina', value: '1.2', unit: 'mg/dL', referenceRange: '0.6-1.1' },
-            { testName: 'Potássio', value: '4.1', unit: 'mEq/L', referenceRange: '3.5-5.0' },
-            { testName: 'BNP', value: '450', unit: 'pg/mL', referenceRange: '<100' }
-        ]
-      }
-    ],
-    attachments: []
-  }
-];
-
 // Initial state for adding a new patient
 const INITIAL_NEW_PATIENT_STATE: Omit<Patient, 'id' | 'dailyLogs' | 'personalHistory' | 'homeMedications' | 'diagnosticHypotheses' | 'attachments'> = {
   name: '',
@@ -226,7 +102,8 @@ export default function App() {
   const [loginError, setLoginError] = useState(false);
 
   // --- APP STATE ---
-  const [patients, setPatients] = useState<Patient[]>(MOCK_PATIENTS);
+  const [patients, setPatients] = useState<Patient[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   
@@ -278,6 +155,25 @@ export default function App() {
 
   // Attachment Upload Ref
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // --- INITIAL LOAD ---
+  useEffect(() => {
+    if (isAuthenticated) {
+      loadPatients();
+    }
+  }, [isAuthenticated]);
+
+  const loadPatients = async () => {
+    setIsLoading(true);
+    try {
+      const data = await PatientService.fetchPatients();
+      setPatients(data);
+    } catch (error) {
+      console.error("Failed to load patients", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // Filtering Logic
   const filteredPatients = patients.filter(p => {
@@ -332,7 +228,6 @@ export default function App() {
                if (log.id !== newestLogId) {
                    newCollapsedState[log.id] = true;
                }
-               // newestLogId is implicitly undefined, which evaluates to !undefined = true (Shown) in the render logic
            });
         }
         setCollapsedLogs(newCollapsedState);
@@ -345,7 +240,6 @@ export default function App() {
     setShowPrintPreview(false);
     setShowTransferModal(false);
     setCollapsedSections({}); 
-    // collapsedLogs is handled above now
   }, [selectedPatientId]);
 
 
@@ -376,57 +270,29 @@ export default function App() {
     }));
   };
 
-  const handleSavePatient = (e: React.FormEvent) => {
+  const handleSavePatient = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (editingPatientId) {
-      // Update existing patient
-      setPatients(prev => prev.map(p => {
-        if (p.id === editingPatientId) {
-          return {
-            ...p,
-            ...newPatientData,
-            // Ensure fields that aren't in form are preserved
-            personalHistory: p.personalHistory,
-            homeMedications: p.homeMedications,
-            diagnosticHypotheses: p.diagnosticHypotheses,
-            dailyLogs: p.dailyLogs,
-            vasoactiveDrugs: p.vasoactiveDrugs,
-            sedationAnalgesia: p.sedationAnalgesia,
-            devices: p.devices,
-            attachments: p.attachments,
-            id: p.id
-          };
+    try {
+      if (editingPatientId) {
+        await PatientService.updatePatient(editingPatientId, newPatientData);
+        await loadPatients();
+        setEditingPatientId(null);
+      } else {
+        const newPatient = await PatientService.createPatient(newPatientData);
+        if (newPatient) {
+          await loadPatients();
+          setSelectedPatientId(newPatient.id);
+          if (activeTab !== newPatient.unit) {
+             setActiveTab(newPatient.unit);
+          }
         }
-        return p;
-      }));
-      setEditingPatientId(null);
-    } else {
-      // Create new patient
-      const newPatient: Patient = {
-        ...newPatientData,
-        id: Math.random().toString(36).substr(2, 9),
-        personalHistory: [],
-        homeMedications: [],
-        diagnosticHypotheses: [],
-        dailyLogs: [],
-        vasoactiveDrugs: '',
-        sedationAnalgesia: '',
-        devices: '',
-        attachments: []
-      };
-      setPatients(prev => [...prev, newPatient]);
-      setSelectedPatientId(newPatient.id);
-      
-      if (activeTab === 'Finalizados') {
-         setActiveTab(newPatient.unit);
-      } else if (activeTab !== newPatient.unit) {
-         setActiveTab(newPatient.unit);
       }
+      setShowAddPatientModal(false);
+      setNewPatientData(INITIAL_NEW_PATIENT_STATE);
+    } catch (err) {
+      alert('Erro ao salvar paciente.');
     }
-    
-    setShowAddPatientModal(false);
-    setNewPatientData(INITIAL_NEW_PATIENT_STATE);
   };
 
   const startEditingPatient = () => {
@@ -447,60 +313,49 @@ export default function App() {
     setShowAddPatientModal(true);
   };
 
-  const handleTransferPatient = () => {
+  const handleTransferPatient = async () => {
     if (!selectedPatientId) return;
-
-    setPatients(prevPatients => prevPatients.map(p => {
-      if (p.id === selectedPatientId) {
-        if (transferTarget === 'Finalizados') {
-          return { ...p, status: 'completed' };
-        } else {
-          return { ...p, status: 'active', unit: transferTarget as 'UTI' | 'Enfermaria' };
-        }
-      }
-      return p;
-    }));
-    setShowTransferModal(false);
+    try {
+      const updates: Partial<Patient> = transferTarget === 'Finalizados' 
+        ? { status: 'completed' } 
+        : { status: 'active', unit: transferTarget as 'UTI' | 'Enfermaria' };
+      
+      await PatientService.updatePatient(selectedPatientId, updates);
+      await loadPatients();
+      setShowTransferModal(false);
+    } catch(err) {
+      alert('Erro ao transferir.');
+    }
   };
   
-  const handleSaveLog = (logData: Omit<DailyLog, 'id'>) => {
+  const handleSaveLog = async (logData: Omit<DailyLog, 'id'>) => {
     if (!selectedPatientId) return;
     
-    setPatients(prevPatients => {
-      return prevPatients.map(p => {
-        if (p.id === selectedPatientId) {
-          // 1. Update Logs
-          let updatedLogs;
-          if (editingLog) {
-            updatedLogs = p.dailyLogs.map(log => 
-               log.id === editingLog.id ? { ...logData, id: editingLog.id } : log
-            );
-          } else {
-            const newLog: DailyLog = {
-              ...logData,
-              id: Math.random().toString(36).substr(2, 9),
-            };
-            updatedLogs = [...p.dailyLogs, newLog];
-          }
+    try {
+       // 1. Prepare log object (if editing, use existing ID, else temp ID for service decision)
+       const logToSave: DailyLog = {
+         id: editingLog ? editingLog.id : 'new',
+         ...logData
+       };
 
-          // 2. Sync Prescription (Update main patient prescription from this log)
-          const newPrescriptionText = logData.prescriptions
+       await PatientService.upsertDailyLog(selectedPatientId, logToSave);
+
+       // 2. Sync Prescription to main patient record
+       const newPrescriptionText = logData.prescriptions
             .filter(line => line.trim().length > 0)
             .map((line, idx) => `${idx + 1}. ${line}`)
             .join('\n');
+       
+       if (newPrescriptionText) {
+          await PatientService.updatePatient(selectedPatientId, { medicalPrescription: newPrescriptionText });
+       }
 
-          return { 
-            ...p, 
-            dailyLogs: updatedLogs,
-            medicalPrescription: newPrescriptionText // Automatically updates the main prescription field
-          };
-        }
-        return p;
-      });
-    });
-
-    setShowAddLogModal(false);
-    setEditingLog(null);
+       await loadPatients();
+       setShowAddLogModal(false);
+       setEditingLog(null);
+    } catch(err) {
+      alert('Erro ao salvar registro diário.');
+    }
   };
 
   const handleEditLog = (log: DailyLog) => {
@@ -508,176 +363,159 @@ export default function App() {
     setShowAddLogModal(true);
   };
 
-  const handleToggleConductVerification = (logId: string, conductIndex: number) => {
-    if (!selectedPatientId) return;
+  const handleToggleConductVerification = async (logId: string, conductIndex: number) => {
+    if (!selectedPatientId || !selectedPatient) return;
     
-    setPatients(prevPatients => {
-      return prevPatients.map(p => {
-        if (p.id === selectedPatientId) {
-          const updatedLogs = p.dailyLogs.map(log => {
-            if (log.id === logId) {
-               const newConducts = [...log.conducts];
-               if (newConducts[conductIndex]) {
-                   newConducts[conductIndex] = {
-                       ...newConducts[conductIndex],
-                       verified: !newConducts[conductIndex].verified
-                   };
-               }
-               return { ...log, conducts: newConducts };
+    // Optimistic Update
+    const updatedLogs = selectedPatient.dailyLogs.map(log => {
+        if (log.id === logId) {
+            const newConducts = [...log.conducts];
+            if (newConducts[conductIndex]) {
+                newConducts[conductIndex] = {
+                    ...newConducts[conductIndex],
+                    verified: !newConducts[conductIndex].verified
+                };
             }
-            return log;
-          });
-          return { ...p, dailyLogs: updatedLogs };
+            return { ...log, conducts: newConducts };
         }
-        return p;
-      });
+        return log;
     });
+
+    const targetLog = updatedLogs.find(l => l.id === logId);
+    if(targetLog) {
+       // Persist
+       await PatientService.upsertDailyLog(selectedPatientId, targetLog);
+       // We can reload or just set state locally
+       setPatients(prev => prev.map(p => p.id === selectedPatientId ? {...p, dailyLogs: updatedLogs} : p));
+    }
   };
 
-  const handleUpdateLabResult = (logId: string, testName: string, newValue: string, unit?: string) => {
-    const updatedPatients = patients.map(p => {
-      if (p.id === selectedPatientId) {
-        const updatedLogs = p.dailyLogs.map(log => {
-          if (log.id === logId) {
-            const existingLabIndex = log.labs.findIndex(l => l.testName === testName);
-            const newLabs = [...log.labs];
+  const handleUpdateLabResult = async (logId: string, testName: string, newValue: string, unit?: string) => {
+    if (!selectedPatientId || !selectedPatient) return;
 
-            if (existingLabIndex >= 0) {
-               if (newValue.trim() === '') {
-                 newLabs.splice(existingLabIndex, 1);
-               } else {
-                 newLabs[existingLabIndex] = { 
-                    ...newLabs[existingLabIndex], 
-                    value: newValue,
-                    unit: unit !== undefined ? unit : newLabs[existingLabIndex].unit 
-                 };
-               }
-            } else if (newValue.trim() !== '') {
-               const referenceLab = p.dailyLogs
-                 .flatMap(l => l.labs)
-                 .find(l => l.testName === testName);
-               
-               const newLabEntry: LabResult = {
-                 testName,
-                 value: newValue,
-                 unit: unit || referenceLab?.unit || '',
-                 referenceRange: referenceLab?.referenceRange || ''
-               };
-               newLabs.push(newLabEntry);
-            }
-            return { ...log, labs: newLabs };
-          }
-          return log;
-        });
-        return { ...p, dailyLogs: updatedLogs };
-      }
-      return p;
-    });
-    setPatients(updatedPatients);
-  };
+    const updatedLogs = selectedPatient.dailyLogs.map(log => {
+      if (log.id === logId) {
+        const existingLabIndex = log.labs.findIndex(l => l.testName === testName);
+        const newLabs = [...log.labs];
 
-  const updatePatientList = (field: 'diagnosticHypotheses' | 'personalHistory' | 'homeMedications', value: string, action: 'add' | 'remove', index?: number) => {
-    const updatedPatients = patients.map(p => {
-      if (p.id === selectedPatientId) {
-        let newList = [...p[field]];
-        if (action === 'add') {
-           if(value.trim()) newList.push(value);
-        } else if (action === 'remove' && index !== undefined) {
-           newList.splice(index, 1);
+        if (existingLabIndex >= 0) {
+           if (newValue.trim() === '') {
+             newLabs.splice(existingLabIndex, 1);
+           } else {
+             newLabs[existingLabIndex] = { 
+                ...newLabs[existingLabIndex], 
+                value: newValue,
+                unit: unit !== undefined ? unit : newLabs[existingLabIndex].unit 
+             };
+           }
+        } else if (newValue.trim() !== '') {
+           const referenceLab = selectedPatient.dailyLogs
+             .flatMap(l => l.labs)
+             .find(l => l.testName === testName);
+           
+           const newLabEntry: LabResult = {
+             testName,
+             value: newValue,
+             unit: unit || referenceLab?.unit || '',
+             referenceRange: referenceLab?.referenceRange || ''
+           };
+           newLabs.push(newLabEntry);
         }
-        return { ...p, [field]: newList };
+        return { ...log, labs: newLabs };
       }
-      return p;
+      return log;
     });
-    setPatients(updatedPatients);
+
+    const targetLog = updatedLogs.find(l => l.id === logId);
+    if(targetLog) {
+       await PatientService.upsertDailyLog(selectedPatientId, targetLog);
+       setPatients(prev => prev.map(p => p.id === selectedPatientId ? {...p, dailyLogs: updatedLogs} : p));
+    }
   };
 
-  const updateHypothesesList = (newHypotheses: string[]) => {
-    const updatedPatients = patients.map(p => {
-      if (p.id === selectedPatientId) {
-        return { ...p, diagnosticHypotheses: newHypotheses };
-      }
-      return p;
-    });
-    setPatients(updatedPatients);
+  // Generic List Updater (Hypothesis, History, Meds)
+  const updatePatientList = async (field: 'diagnosticHypotheses' | 'personalHistory' | 'homeMedications', value: string, action: 'add' | 'remove', index?: number) => {
+    if (!selectedPatientId || !selectedPatient) return;
+    
+    let newList = [...selectedPatient[field]];
+    if (action === 'add') {
+        if(value.trim()) newList.push(value);
+    } else if (action === 'remove' && index !== undefined) {
+        newList.splice(index, 1);
+    }
+
+    // Optimistic
+    setPatients(prev => prev.map(p => p.id === selectedPatientId ? { ...p, [field]: newList } : p));
+    
+    // Persist
+    await PatientService.updatePatient(selectedPatientId, { [field]: newList });
   };
 
-  const saveAdmissionHistory = () => {
-    const updatedPatients = patients.map(p => {
-      if (p.id === selectedPatientId) {
-        return { ...p, admissionHistory: tempAdmissionHistory };
-      }
-      return p;
-    });
-    setPatients(updatedPatients);
+  const updateHypothesesList = async (newHypotheses: string[]) => {
+    if (!selectedPatientId) return;
+    setPatients(prev => prev.map(p => p.id === selectedPatientId ? { ...p, diagnosticHypotheses: newHypotheses } : p));
+    await PatientService.updatePatient(selectedPatientId, { diagnosticHypotheses: newHypotheses });
+  };
+
+  const saveAdmissionHistory = async () => {
+    if (!selectedPatientId) return;
+    await PatientService.updatePatient(selectedPatientId, { admissionHistory: tempAdmissionHistory });
+    setPatients(prev => prev.map(p => p.id === selectedPatientId ? { ...p, admissionHistory: tempAdmissionHistory } : p));
     setEditingAdmission(false);
   };
 
-  const savePrescription = () => {
-    const updatedPatients = patients.map(p => {
-      if (p.id === selectedPatientId) {
-        return { ...p, medicalPrescription: tempPrescription };
-      }
-      return p;
-    });
-    setPatients(updatedPatients);
+  const savePrescription = async () => {
+    if (!selectedPatientId) return;
+    await PatientService.updatePatient(selectedPatientId, { medicalPrescription: tempPrescription });
+    setPatients(prev => prev.map(p => p.id === selectedPatientId ? { ...p, medicalPrescription: tempPrescription } : p));
     setEditingPrescription(false);
   };
 
-  const saveICUDetails = () => {
-     const updatedPatients = patients.map(p => {
-      if (p.id === selectedPatientId) {
-        return { 
-            ...p, 
-            vasoactiveDrugs: tempVasoactive,
-            sedationAnalgesia: tempSedation,
-            devices: tempDevices
-        };
-      }
-      return p;
-    });
-    setPatients(updatedPatients);
+  const saveICUDetails = async () => {
+    if (!selectedPatientId) return;
+    const updates = {
+        vasoactiveDrugs: tempVasoactive,
+        sedationAnalgesia: tempSedation,
+        devices: tempDevices
+    };
+    await PatientService.updatePatient(selectedPatientId, updates);
+    setPatients(prev => prev.map(p => p.id === selectedPatientId ? { ...p, ...updates } : p));
     setEditingICUDetails(false);
   }
 
   // --- ATTACHMENT HANDLERS ---
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files && event.target.files[0] && selectedPatientId) {
       const file = event.target.files[0];
-      const isImage = file.type.startsWith('image/');
-      
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        if (e.target?.result) {
-          const newAttachment: Attachment = {
-             id: Math.random().toString(36).substr(2, 9),
-             name: file.name,
-             type: isImage ? 'image' : 'file',
-             url: e.target.result as string, // Base64
-             date: new Date().toISOString()
-          };
-          
+      try {
+          const newAttachment = await PatientService.uploadAttachment(selectedPatientId, file);
           setPatients(prev => prev.map(p => {
              if (p.id === selectedPatientId) {
                 return { ...p, attachments: [...p.attachments, newAttachment] };
              }
              return p;
           }));
-        }
-      };
-      reader.readAsDataURL(file);
+      } catch (err) {
+          alert('Erro ao enviar arquivo.');
+          console.error(err);
+      }
     }
   };
 
-  const handleDeleteAttachment = (attachmentId: string) => {
+  const handleDeleteAttachment = async (attachmentId: string) => {
      if (!selectedPatientId) return;
      if (window.confirm('Tem certeza que deseja excluir este anexo?')) {
-        setPatients(prev => prev.map(p => {
-            if (p.id === selectedPatientId) {
-               return { ...p, attachments: p.attachments.filter(a => a.id !== attachmentId) };
-            }
-            return p;
-        }));
+        try {
+            await PatientService.deleteAttachment(attachmentId);
+            setPatients(prev => prev.map(p => {
+                if (p.id === selectedPatientId) {
+                return { ...p, attachments: p.attachments.filter(a => a.id !== attachmentId) };
+                }
+                return p;
+            }));
+        } catch (err) {
+            alert('Erro ao excluir anexo.');
+        }
      }
   };
 
@@ -687,8 +525,8 @@ export default function App() {
   }, 0) || 0;
 
   // Toggle strikethrough for a specific line in the prescription
-  const handleTogglePrescriptionLine = (index: number) => {
-    if (!selectedPatient) return;
+  const handleTogglePrescriptionLine = async (index: number) => {
+    if (!selectedPatient || !selectedPatientId) return;
     const currentText = selectedPatient.medicalPrescription || '';
     const lines = currentText.split('\n');
 
@@ -708,10 +546,12 @@ export default function App() {
         p.id === selectedPatientId ? { ...p, medicalPrescription: newText } : p
     ));
     
-    // Also update temp prescription if currently editing, though clicking is disabled while editing
     if (editingPrescription) {
         setTempPrescription(newText);
     }
+
+    // Persist
+    await PatientService.updatePatient(selectedPatientId, { medicalPrescription: newText });
   };
 
   const currentActivePrescriptions = selectedPatient?.medicalPrescription
@@ -785,6 +625,14 @@ export default function App() {
     );
   }
 
+  if (isLoading && isAuthenticated) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-gray-100">
+         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-medical-600"></div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-screen bg-gray-100 font-sans overflow-hidden">
       
@@ -847,7 +695,7 @@ export default function App() {
         <div className="flex-1 overflow-y-auto px-2">
           {filteredPatients.length === 0 && (
              <div className="text-center text-slate-500 text-sm mt-10 p-4">
-                Nenhum paciente {activeTab === 'Finalizados' ? 'finalizado' : `na ${activeTab}`}.
+                {isLoading ? 'Carregando...' : `Nenhum paciente ${activeTab === 'Finalizados' ? 'finalizado' : `na ${activeTab}`}.`}
              </div>
           )}
           {filteredPatients.map(patient => (
