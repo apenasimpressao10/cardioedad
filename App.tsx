@@ -767,7 +767,7 @@ export default function App() {
         {selectedPatient ? (
             <>
                 {/* Header - Optimized for Mobile */}
-                <header className="print:hidden bg-white border-b h-auto min-h-[64px] py-2 flex flex-col sm:flex-row items-start sm:items-center justify-between px-4 sm:px-6 shadow-sm z-10 shrink-0 gap-3">
+                <header className="print:hidden bg-white border-b h-auto min-h-[64px] py-2 flex flex-col sm:flex-row items-start sm:items-center justify-between px-3 sm:px-6 shadow-sm z-10 shrink-0 gap-2 sm:gap-4">
                   <div className="flex items-center gap-4 w-full sm:w-auto">
                     <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 hover:bg-gray-100 rounded-md text-gray-600 lg:hidden">
                        <Menu size={24} />
@@ -777,12 +777,13 @@ export default function App() {
                     </button>
                     <div className="flex-1 min-w-0">
                       <div className="flex flex-wrap items-baseline gap-2">
-                          <h2 className="text-lg font-bold text-gray-900 truncate">{selectedPatient.name}</h2>
+                          {/* OPTIMIZATION: Reduced font size for mobile (text-base) and enabled wrapping (leading-tight, no truncate) */}
+                          <h2 className="text-base sm:text-lg font-bold text-gray-900 leading-tight">{selectedPatient.name}</h2>
                           <span className={`text-xs px-2 py-0.5 rounded-full border whitespace-nowrap ${selectedPatient.status === 'completed' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-gray-100 text-gray-600'}`}>
                             {selectedPatient.status === 'completed' ? 'Alta/Finalizado' : selectedPatient.unit}
                           </span>
                       </div>
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
+                      <div className="flex flex-wrap items-center gap-x-2 sm:gap-x-3 gap-y-1 text-[11px] sm:text-xs text-gray-500">
                         <span className="flex items-center gap-1 whitespace-nowrap"><BedDouble size={14} /> {selectedPatient.bedNumber}</span>
                         <span className="flex items-center gap-1 whitespace-nowrap"><Calendar size={14} /> Adm: {new Date(selectedPatient.admissionDate).toLocaleDateString('pt-BR')}</span>
                         <span className="flex items-center gap-1 whitespace-nowrap"><Scale size={14} /> {selectedPatient.estimatedWeight ? `${selectedPatient.estimatedWeight}kg` : 'Peso NR'}</span>
@@ -794,7 +795,7 @@ export default function App() {
                     </div>
                   </div>
                   
-                  <div className="flex gap-2 w-full sm:w-auto justify-end">
+                  <div className="flex gap-2 w-full sm:w-auto justify-start sm:justify-end mt-1 sm:mt-0">
                     <button 
                       type="button" 
                       onClick={() => setShowPrintPreview(true)} 

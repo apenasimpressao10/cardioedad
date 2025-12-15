@@ -169,48 +169,48 @@ const DailyLogForm: React.FC<DailyLogFormProps> = ({ onSave, onCancel, initialPr
       
       {/* Date */}
       <div>
-        <label className="block text-sm font-medium text-gray-700">Data do Registro</label>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Data do Registro</label>
         <input 
           type="date" 
           required
           value={date}
           onChange={(e) => setDate(e.target.value)}
-          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-medical-500 focus:ring-medical-500 text-base sm:text-sm border p-3"
+          className="mt-1 block w-full rounded-md border-gray-200 bg-white shadow-sm focus:border-medical-500 focus:ring-medical-500 text-base sm:text-sm border p-3"
         />
       </div>
 
       {/* Fluid Balance - ONLY FOR UTI */}
       {patientUnit === 'UTI' && (
-        <div className="bg-blue-50/50 p-4 rounded-lg border border-blue-100">
+        <div className="bg-blue-50/30 p-4 rounded-lg border border-blue-100">
            <h3 className="text-md font-medium text-gray-900 border-b border-blue-200 pb-1 mb-3 flex items-center gap-2">
              <Droplets size={18} className="text-blue-500" /> Balanço Hídrico (24h)
            </h3>
            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="flex-1">
-                 <label className="text-xs text-gray-500 uppercase font-bold">Entrada (ml)</label>
+                 <label className="text-xs text-gray-500 uppercase font-bold mb-1 block">Entrada (ml)</label>
                  <input 
                     type="number"
                     inputMode="numeric" 
                     value={fluidBalance.intake || ''} 
                     onChange={e => setFluidBalance({...fluidBalance, intake: parseFloat(e.target.value) || 0})}
-                    className="w-full border rounded p-3 text-base sm:text-sm focus:border-blue-500 outline-none" 
+                    className="w-full border border-blue-200 rounded-md p-3 text-base sm:text-sm focus:border-blue-500 outline-none bg-white shadow-sm" 
                     placeholder="0"
                  />
               </div>
               <div className="flex-1">
-                 <label className="text-xs text-gray-500 uppercase font-bold">Saída (ml)</label>
+                 <label className="text-xs text-gray-500 uppercase font-bold mb-1 block">Saída (ml)</label>
                  <input 
                     type="number"
                     inputMode="numeric" 
                     value={fluidBalance.output || ''} 
                     onChange={e => setFluidBalance({...fluidBalance, output: parseFloat(e.target.value) || 0})}
-                    className="w-full border rounded p-3 text-base sm:text-sm focus:border-blue-500 outline-none" 
+                    className="w-full border border-blue-200 rounded-md p-3 text-base sm:text-sm focus:border-blue-500 outline-none bg-white shadow-sm" 
                     placeholder="0"
                  />
               </div>
               <div className="flex-1">
-                 <label className="text-xs text-gray-500 uppercase font-bold">Balanço (ml)</label>
-                 <div className={`w-full border rounded p-3 text-base sm:text-sm bg-gray-100 font-bold text-center ${fluidBalance.net > 0 ? 'text-blue-600' : fluidBalance.net < 0 ? 'text-orange-600' : 'text-gray-600'}`}>
+                 <label className="text-xs text-gray-500 uppercase font-bold mb-1 block">Balanço (ml)</label>
+                 <div className={`w-full border border-gray-200 rounded-md p-3 text-base sm:text-sm bg-white shadow-sm font-bold text-center ${fluidBalance.net > 0 ? 'text-blue-600' : fluidBalance.net < 0 ? 'text-orange-600' : 'text-gray-600'}`}>
                     {fluidBalance.net > 0 ? '+' : ''}{fluidBalance.net}
                  </div>
               </div>
@@ -219,48 +219,48 @@ const DailyLogForm: React.FC<DailyLogFormProps> = ({ onSave, onCancel, initialPr
       )}
 
       {/* Vital Signs */}
-      <div>
-        <h3 className="text-md font-medium text-gray-900 border-b pb-1 mb-3">Sinais Vitais</h3>
+      <div className="bg-white p-4 rounded-lg border border-gray-100 shadow-sm">
+        <h3 className="text-md font-medium text-gray-900 border-b border-gray-100 pb-2 mb-4">Sinais Vitais</h3>
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
            <div>
-             <label className="text-xs text-gray-500 uppercase">Temp (°C)</label>
-             <input inputMode="decimal" type="text" value={vitals.temperature} onChange={e => setVitals({...vitals, temperature: e.target.value})} className="w-full border rounded p-3 text-base sm:text-sm" placeholder="36.5" />
+             <label className="text-xs text-gray-500 uppercase font-bold mb-1 block">Temp (°C)</label>
+             <input inputMode="decimal" type="text" value={vitals.temperature} onChange={e => setVitals({...vitals, temperature: e.target.value})} className="w-full border border-gray-200 rounded-md p-3 text-base sm:text-sm bg-white focus:border-medical-500 outline-none shadow-sm" placeholder="36.5" />
            </div>
            <div>
-             <label className="text-xs text-gray-500 uppercase">FC (bpm)</label>
-             <input inputMode="numeric" type="text" value={vitals.heartRate} onChange={e => setVitals({...vitals, heartRate: e.target.value})} className="w-full border rounded p-3 text-base sm:text-sm" placeholder="72" />
+             <label className="text-xs text-gray-500 uppercase font-bold mb-1 block">FC (bpm)</label>
+             <input inputMode="numeric" type="text" value={vitals.heartRate} onChange={e => setVitals({...vitals, heartRate: e.target.value})} className="w-full border border-gray-200 rounded-md p-3 text-base sm:text-sm bg-white focus:border-medical-500 outline-none shadow-sm" placeholder="72" />
            </div>
            <div>
-             <label className="text-xs text-gray-500 uppercase">FR (irpm)</label>
-             <input inputMode="numeric" type="text" value={vitals.respiratoryRate} onChange={e => setVitals({...vitals, respiratoryRate: e.target.value})} className="w-full border rounded p-3 text-base sm:text-sm" placeholder="16" />
+             <label className="text-xs text-gray-500 uppercase font-bold mb-1 block">FR (irpm)</label>
+             <input inputMode="numeric" type="text" value={vitals.respiratoryRate} onChange={e => setVitals({...vitals, respiratoryRate: e.target.value})} className="w-full border border-gray-200 rounded-md p-3 text-base sm:text-sm bg-white focus:border-medical-500 outline-none shadow-sm" placeholder="16" />
            </div>
            <div>
-             <label className="text-xs text-gray-500 uppercase">PA Sistólica</label>
-             <input inputMode="numeric" type="text" value={vitals.bloodPressureSys} onChange={e => setVitals({...vitals, bloodPressureSys: e.target.value})} className="w-full border rounded p-3 text-base sm:text-sm" placeholder="120" />
+             <label className="text-xs text-gray-500 uppercase font-bold mb-1 block">PA Sistólica</label>
+             <input inputMode="numeric" type="text" value={vitals.bloodPressureSys} onChange={e => setVitals({...vitals, bloodPressureSys: e.target.value})} className="w-full border border-gray-200 rounded-md p-3 text-base sm:text-sm bg-white focus:border-medical-500 outline-none shadow-sm" placeholder="120" />
            </div>
            <div>
-             <label className="text-xs text-gray-500 uppercase">PA Diastólica</label>
-             <input inputMode="numeric" type="text" value={vitals.bloodPressureDia} onChange={e => setVitals({...vitals, bloodPressureDia: e.target.value})} className="w-full border rounded p-3 text-base sm:text-sm" placeholder="80" />
+             <label className="text-xs text-gray-500 uppercase font-bold mb-1 block">PA Diastólica</label>
+             <input inputMode="numeric" type="text" value={vitals.bloodPressureDia} onChange={e => setVitals({...vitals, bloodPressureDia: e.target.value})} className="w-full border border-gray-200 rounded-md p-3 text-base sm:text-sm bg-white focus:border-medical-500 outline-none shadow-sm" placeholder="80" />
            </div>
            <div>
-             <label className="text-xs text-gray-500 uppercase">Sat O2 (%)</label>
-             <input inputMode="numeric" type="text" value={vitals.oxygenSaturation} onChange={e => setVitals({...vitals, oxygenSaturation: e.target.value})} className="w-full border rounded p-3 text-base sm:text-sm" placeholder="98" />
+             <label className="text-xs text-gray-500 uppercase font-bold mb-1 block">Sat O2 (%)</label>
+             <input inputMode="numeric" type="text" value={vitals.oxygenSaturation} onChange={e => setVitals({...vitals, oxygenSaturation: e.target.value})} className="w-full border border-gray-200 rounded-md p-3 text-base sm:text-sm bg-white focus:border-medical-500 outline-none shadow-sm" placeholder="98" />
            </div>
            <div>
-             <label className="text-xs text-gray-500 uppercase">Glicemia</label>
-             <input inputMode="numeric" type="text" value={vitals.capillaryBloodGlucose} onChange={e => setVitals({...vitals, capillaryBloodGlucose: e.target.value})} className="w-full border rounded p-3 text-base sm:text-sm" placeholder="98" />
+             <label className="text-xs text-gray-500 uppercase font-bold mb-1 block">Glicemia</label>
+             <input inputMode="numeric" type="text" value={vitals.capillaryBloodGlucose} onChange={e => setVitals({...vitals, capillaryBloodGlucose: e.target.value})} className="w-full border border-gray-200 rounded-md p-3 text-base sm:text-sm bg-white focus:border-medical-500 outline-none shadow-sm" placeholder="98" />
            </div>
         </div>
       </div>
 
       {/* Notes */}
       <div>
-        <label className="block text-sm font-medium text-gray-700">Anotações</label>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Anotações</label>
         <textarea 
           rows={4}
           value={notes}
           onChange={e => setNotes(e.target.value)}
-          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-medical-500 focus:ring-medical-500 text-base sm:text-sm border p-3"
+          className="mt-1 block w-full rounded-md border-gray-200 shadow-sm focus:border-medical-500 focus:ring-medical-500 text-base sm:text-sm border p-3 bg-white"
           placeholder="Insira observações detalhadas..."
         />
       </div>
@@ -275,7 +275,13 @@ const DailyLogForm: React.FC<DailyLogFormProps> = ({ onSave, onCancel, initialPr
             {prescriptions.map((item, idx) => (
                 <li key={idx} className="flex gap-2">
                     <span className="text-gray-400 self-center hidden sm:inline">•</span>
-                    <input type="text" value={item} onChange={e => handlePrescriptionChange(idx, e.target.value)} className="flex-1 border-b border-gray-200 focus:border-medical-500 outline-none py-2 bg-transparent text-base sm:text-sm" placeholder="Medicamento, dosagem, frequência" />
+                    <input 
+                       type="text" 
+                       value={item} 
+                       onChange={e => handlePrescriptionChange(idx, e.target.value)} 
+                       className="flex-1 border border-gray-200 rounded-md px-3 py-2 bg-white focus:border-medical-500 outline-none text-base sm:text-sm shadow-sm" 
+                       placeholder="Medicamento, dosagem, frequência" 
+                    />
                     <button type="button" onClick={() => removePrescription(idx)} className="text-gray-400 hover:text-red-500 p-2"><Trash2 size={20} /></button>
                 </li>
             ))}
@@ -304,7 +310,7 @@ const DailyLogForm: React.FC<DailyLogFormProps> = ({ onSave, onCancel, initialPr
                       type="text" 
                       value={item.description} 
                       onChange={e => handleConductChange(idx, 'description', e.target.value)} 
-                      className="flex-1 border-b border-gray-200 focus:border-medical-500 outline-none py-2 bg-transparent text-base sm:text-sm" 
+                      className="flex-1 border border-gray-200 rounded-md px-3 py-2 bg-white focus:border-medical-500 outline-none text-base sm:text-sm shadow-sm" 
                       placeholder="Descrição da conduta" 
                     />
                     <button type="button" onClick={() => removeConduct(idx)} className="text-gray-400 hover:text-red-500 p-2"><Trash2 size={20} /></button>
@@ -324,7 +330,8 @@ const DailyLogForm: React.FC<DailyLogFormProps> = ({ onSave, onCancel, initialPr
             </button>
         </div>
         
-        <div className="bg-gray-50 p-2 sm:p-4 rounded-lg border border-gray-200">
+        {/* Lightened container background */}
+        <div className="bg-slate-50/50 p-2 sm:p-4 rounded-lg border border-gray-100">
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
                 {labs.map((lab, idx) => {
                     // Check if this lab is in the standard list
@@ -332,7 +339,7 @@ const DailyLogForm: React.FC<DailyLogFormProps> = ({ onSave, onCancel, initialPr
 
                     if (isStandard) {
                         return (
-                            <div key={idx} className="bg-white p-2 rounded border border-gray-200 shadow-sm flex flex-col">
+                            <div key={idx} className="bg-white p-2 rounded-md border border-gray-200 shadow-sm flex flex-col">
                                 <label className="text-[10px] text-gray-500 font-bold uppercase mb-1 truncate" title={lab.testName}>
                                     {lab.testName}
                                 </label>
@@ -342,7 +349,7 @@ const DailyLogForm: React.FC<DailyLogFormProps> = ({ onSave, onCancel, initialPr
                                         inputMode="decimal"
                                         value={lab.value} 
                                         onChange={e => updateLab(idx, 'value', e.target.value)} 
-                                        className="flex-1 min-w-0 border-b border-gray-300 focus:border-medical-500 outline-none text-base sm:text-sm font-medium py-1 text-center" 
+                                        className="flex-1 min-w-0 border-b border-gray-100 focus:border-medical-500 outline-none text-base sm:text-sm font-medium py-1 text-center bg-transparent" 
                                         placeholder="-" 
                                     />
                                     <span className="text-[10px] text-gray-400 select-none w-8 text-right truncate">{lab.unit}</span>
@@ -352,7 +359,7 @@ const DailyLogForm: React.FC<DailyLogFormProps> = ({ onSave, onCancel, initialPr
                     } else {
                         // Custom/Manual Lab Entry
                         return (
-                            <div key={idx} className="bg-white p-2 rounded border border-blue-100 shadow-sm flex flex-col relative group">
+                            <div key={idx} className="bg-white p-2 rounded-md border border-blue-100 shadow-sm flex flex-col relative group">
                                 <button 
                                     type="button" 
                                     onClick={() => removeLab(idx)} 
@@ -374,7 +381,7 @@ const DailyLogForm: React.FC<DailyLogFormProps> = ({ onSave, onCancel, initialPr
                                         inputMode="decimal" 
                                         value={lab.value} 
                                         onChange={e => updateLab(idx, 'value', e.target.value)} 
-                                        className="flex-1 min-w-0 border-b border-gray-300 focus:border-medical-500 outline-none text-base sm:text-sm font-medium py-1 text-center" 
+                                        className="flex-1 min-w-0 border-b border-gray-100 focus:border-medical-500 outline-none text-base sm:text-sm font-medium py-1 text-center bg-transparent" 
                                         placeholder="Valor" 
                                     />
                                     <input
