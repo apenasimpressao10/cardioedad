@@ -352,7 +352,7 @@ const DailyLogForm: React.FC<DailyLogFormProps> = ({ onSave, onCancel, initialPr
                                         className="flex-1 min-w-0 border-b border-gray-100 focus:border-medical-500 outline-none text-base sm:text-sm font-medium py-1 text-center bg-transparent" 
                                         placeholder="-" 
                                     />
-                                    <span className="text-[10px] text-gray-400 select-none w-8 text-right truncate">{lab.unit}</span>
+                                    {/* Unit removed for cleaner UI */}
                                 </div>
                             </div>
                         );
@@ -384,13 +384,7 @@ const DailyLogForm: React.FC<DailyLogFormProps> = ({ onSave, onCancel, initialPr
                                         className="flex-1 min-w-0 border-b border-gray-100 focus:border-medical-500 outline-none text-base sm:text-sm font-medium py-1 text-center bg-transparent" 
                                         placeholder="Valor" 
                                     />
-                                    <input
-                                        type="text"
-                                        value={lab.unit}
-                                        onChange={e => updateLab(idx, 'unit', e.target.value)}
-                                        className="w-10 text-[10px] text-gray-500 text-right border-none p-0 focus:ring-0 placeholder-gray-300 bg-transparent"
-                                        placeholder="Unid"
-                                    />
+                                    {/* Unit input removed for cleaner UI and consistency */}
                                 </div>
                             </div>
                         );

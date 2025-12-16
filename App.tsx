@@ -12,7 +12,7 @@ import {
   PlusCircle, 
   ChevronRight, 
   ChevronDown, 
-  ChevronUp,
+  ChevronUp, 
   Menu, 
   X, 
   Search, 
@@ -43,12 +43,113 @@ import {
   Paperclip,
   Image as ImageIcon,
   File as FileIcon,
-  Download
+  Download,
+  AlertCircle,
+  AlertTriangle,
+  Calculator,
+  Syringe
 } from 'lucide-react';
 import { Patient, DailyLog, LabResult, Attachment } from './types';
 import DailyLogForm from './components/DailyLogForm';
 import LabResultTable from './components/LabResultTable';
+import { PatientPrintView, PatientListPrintView } from './components/PrintViews'; // Imported Print Views
 import * as PatientService from './services/patientService';
+
+// --- CONSTANTS FOR INFUSION PRESETS & CALCULATIONS ---
+// Configuração das diluições padrão
+const DRUG_CONFIG: Record<string, { concentration: number; unit: string; weightBased: boolean; timeUnit: 'min' | 'h' }> = {
+  // Vasoativas
+  'Nora (4amp)': { concentration: 64, unit: 'mcg', weightBased: true, timeUnit: 'min' }, // 16mg/250ml = 64 mcg/ml
+  'Nora (8amp)': { concentration: 128, unit: 'mcg', weightBased: true, timeUnit: 'min' }, // 32mg/250ml = 128 mcg/ml
+  'Vaso (2amp)': { concentration: 0.4, unit: 'UI', weightBased: false, timeUnit: 'min' }, // 40UI/100ml = 0.4 UI/ml
+  'Dobuta (4amp)': { concentration: 4000, unit: 'mcg', weightBased: true, timeUnit: 'min' }, // 1000mg/250ml = 4000 mcg/ml
+  'Tridil (2amp)': { concentration: 400, unit: 'mcg', weightBased: false, timeUnit: 'min' }, // 100mg/250ml = 400 mcg/ml (mcg/min - geralmente não usa peso)
+  'Nipride (2amp)': { concentration: 400, unit: 'mcg', weightBased: true, timeUnit: 'min' }, // 100mg/250ml = 400 mcg/ml (mcg/kg/min)
+  
+  // Sedação
+  'Fenta (5amp)': { concentration: 50, unit: 'mcg', weightBased: true, timeUnit: 'h' }, // 2500mcg/50ml = 50 mcg/ml (Pura)
+  'Mida (4amp)': { concentration: 0.8, unit: 'mg', weightBased: true, timeUnit: 'h' }, // 200mg/250ml = 0.8 mg/ml (Atualizado conforme solicitado)
+  'Precedex (2amp)': { concentration: 4, unit: 'mcg', weightBased: true, timeUnit: 'h' }, // 400mcg/100ml = 4 mcg/ml
+  'Ceta (1amp)': { concentration: 2, unit: 'mg', weightBased: true, timeUnit: 'h' }, // 500mg/250ml = 2 mg/ml (Atualizado conforme solicitado)
+  
+  // Exceções
+  'Amio': { concentration: 0, unit: '-', weightBased: false, timeUnit: 'min' } // Sem cálculo
+};
+
+const VASOACTIVE_PRESETS = [
+  { label: 'Nora (4amp)', value: 'Nora (4amp)' },
+  { label: 'Nora (8amp)', value: 'Nora (8amp)' },
+  { label: 'Vaso (2amp)', value: 'Vaso (2amp)' },
+  { label: 'Dobuta (4amp)', value: 'Dobuta (4amp)' },
+  { label: 'Tridil (2amp)', value: 'Tridil (2amp)' },
+  { label: 'Nipride (2amp)', value: 'Nipride (2amp)' },
+  { label: 'Amio', value: 'Amio' },
+  { label: 'Outro', value: 'custom' }
+];
+
+const SEDATION_PRESETS = [
+  { label: 'Fenta (5amp)', value: 'Fenta (5amp)' },
+  { label: 'Mida (4amp)', value: 'Mida (4amp)' },
+  { label: 'Precedex (2amp)', value: 'Precedex (2amp)' },
+  { label: 'Ceta (1amp)', value: 'Ceta (1amp)' },
+  { label: 'Outro', value: 'custom' }
+];
+
+// Helper interface for local infusion state
+interface InfusionItem {
+    id: string;
+    drug: string;
+    flowRate: string; // mL/h
+}
+
+// Helper: Calculate Dose
+const calculateDose = (drug: string, flowRateStr: string, weight: number): { dose: string, unit: string } => {
+  const config = DRUG_CONFIG[drug];
+  
+  // Caso não configurado, customizado
+  if (!config || !flowRateStr) {
+      return { dose: '...', unit: '' };
+  }
+
+  // Caso precise de peso mas peso é 0 ou inválido
+  if (config.weightBased && !weight) {
+      return { dose: '...', unit: '' };
+  }
+  
+  // Caso Amio (ocultar)
+  if (drug === 'Amio') return { dose: '-', unit: '' };
+
+  const flow = parseFloat(flowRateStr.replace(',', '.'));
+  if (isNaN(flow)) return { dose: '...', unit: '' };
+
+  let dose = flow * config.concentration;
+
+  // Ajuste pelo peso
+  if (config.weightBased) {
+      dose = dose / weight;
+  }
+
+  // Ajuste pelo tempo
+  if (config.timeUnit === 'min') {
+      dose = dose / 60;
+  }
+
+  // Formatação Inteligente
+  let formattedDose = '';
+  if (dose < 0.01) formattedDose = dose.toFixed(3);
+  else if (dose < 10) formattedDose = dose.toFixed(2);
+  else formattedDose = dose.toFixed(1);
+
+  // Construção da Unidade
+  // SOLICITAÇÃO: Resumir unidade apenas em 'MCG' (ou unidade base)
+  let unitStr = config.unit;
+  // A lógica antiga adicionava /kg/min, agora paramos na unidade base para economizar espaço
+  // if (config.weightBased) unitStr += '/kg';
+  // unitStr += `/${config.timeUnit}`;
+
+  return { dose: formattedDose, unit: unitStr };
+};
+
 
 // Helper for temperature styling
 const getTemperatureStyle = (tempStr: string) => {
@@ -78,6 +179,34 @@ const getTemperatureStyle = (tempStr: string) => {
   return "text-gray-800";
 };
 
+// Helper component to render bold drug names
+const DrugListDisplay = ({ text }: { text: string | undefined }) => {
+  if (!text) return null;
+  
+  return (
+    <div className="space-y-1">
+      {text.split('\n').map((line, i) => {
+        // Try to split by first colon to separate Drug Name from dose
+        const colonIndex = line.indexOf(':');
+        
+        if (colonIndex !== -1) {
+          const drugName = line.substring(0, colonIndex);
+          const rest = line.substring(colonIndex);
+          return (
+            <div key={i} className="text-gray-700">
+              <span className="font-extrabold text-gray-900">{drugName}</span>
+              <span>{rest}</span>
+            </div>
+          );
+        }
+        
+        // Fallback if no colon
+        return <div key={i} className="text-gray-700">{line}</div>;
+      })}
+    </div>
+  );
+};
+
 // Initial state for adding a new patient
 const INITIAL_NEW_PATIENT_STATE: Omit<Patient, 'id' | 'dailyLogs' | 'personalHistory' | 'homeMedications' | 'diagnosticHypotheses' | 'attachments'> = {
   name: '',
@@ -104,6 +233,7 @@ export default function App() {
   // --- APP STATE ---
   const [patients, setPatients] = useState<Patient[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  // Removed isDeleting state as direct deletion is removed
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
   
   // Sidebar logic changed: Default closed on mobile, open on desktop
@@ -124,6 +254,7 @@ export default function App() {
   // Transfer Modal States
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [transferTarget, setTransferTarget] = useState<string>('UTI');
+  const [transferPassword, setTransferPassword] = useState(''); // New state for archiving password
 
   // Print Modal States
   const [showPrintPreview, setShowPrintPreview] = useState(false);
@@ -150,6 +281,10 @@ export default function App() {
   const [tempVasoactive, setTempVasoactive] = useState('');
   const [tempSedation, setTempSedation] = useState('');
   const [tempDevices, setTempDevices] = useState('');
+  
+  // Calculator State (Visual only for now, syncs to text fields)
+  const [activeVasoDrugs, setActiveVasoDrugs] = useState<InfusionItem[]>([]);
+  const [activeSedationDrugs, setActiveSedationDrugs] = useState<InfusionItem[]>([]);
 
   // Editing Diagnosis State
   const [editingDiagnosisIndex, setEditingDiagnosisIndex] = useState<number | null>(null);
@@ -188,6 +323,7 @@ export default function App() {
   };
 
   // Filtering Logic
+  // Patients in 'Arquivo Morto' will not match any of these tabs, effectively hiding them.
   const filteredPatients = patients.filter(p => {
     if (activeTab === 'Finalizados') {
       return p.status === 'completed';
@@ -224,6 +360,10 @@ export default function App() {
         setTempSedation(selectedPatient.sedationAnalgesia || '');
         setTempDevices(selectedPatient.devices || '');
 
+        // Reset Calculator State
+        setActiveVasoDrugs([]); 
+        setActiveSedationDrugs([]);
+
         // --- UPDATE LOG COLLAPSE LOGIC ---
         // Goal: Expand ONLY the most recent log (date based). Collapse all others.
         const newCollapsedState: Record<string, boolean> = {};
@@ -252,6 +392,7 @@ export default function App() {
     setShowPrintPreview(false);
     setShowTransferModal(false);
     setCollapsedSections({}); 
+    setTransferPassword(''); // Reset password field
     
     // Auto-close sidebar on mobile when selecting a patient
     if (window.innerWidth < 1024) {
@@ -301,7 +442,7 @@ export default function App() {
           await loadPatients();
           setSelectedPatientId(newPatient.id);
           if (activeTab !== newPatient.unit) {
-             setActiveTab(newPatient.unit);
+             setActiveTab(newPatient.unit as any);
           }
         }
       }
@@ -331,15 +472,34 @@ export default function App() {
   };
 
   const handleTransferPatient = async () => {
-    if (!selectedPatientId) return;
+    if (!selectedPatientId || !selectedPatient) return;
+
+    // --- LOGIC FOR TRANSFER & ARCHIVING ---
     try {
-      const updates: Partial<Patient> = transferTarget === 'Finalizados' 
-        ? { status: 'completed' } 
-        : { status: 'active', unit: transferTarget as 'UTI' | 'Enfermaria' };
+      // SECURITY CHECK FOR DEAD ARCHIVE
+      if (transferTarget === 'Arquivo Morto') {
+          if (transferPassword !== '223209**') {
+              alert('Senha incorreta. A transferência para o Arquivo Morto exige confirmação de segurança.');
+              setTransferPassword('');
+              return;
+          }
+      }
+
+      let updates: Partial<Patient>;
+
+      if (transferTarget === 'Finalizados') {
+         updates = { status: 'completed' };
+      } else {
+         // This covers 'UTI', 'Enfermaria', and 'Arquivo Morto'
+         // Patients in 'Arquivo Morto' will have status 'active' but won't show in the main tabs 
+         // because the tabs filter by 'UTI' or 'Enfermaria' specifically.
+         updates = { status: 'active', unit: transferTarget as any };
+      }
       
       await PatientService.updatePatient(selectedPatientId, updates);
       await loadPatients();
       setShowTransferModal(false);
+      setTransferPassword('');
     } catch(err) {
       alert('Erro ao transferir.');
     }
@@ -490,9 +650,14 @@ export default function App() {
 
   const saveICUDetails = async () => {
     if (!selectedPatientId) return;
+    
+    // Sync Calculator arrays to text fields if they are not empty
+    let finalVasoactive = tempVasoactive;
+    let finalSedation = tempSedation;
+
     const updates = {
-        vasoactiveDrugs: tempVasoactive,
-        sedationAnalgesia: tempSedation,
+        vasoactiveDrugs: finalVasoactive,
+        sedationAnalgesia: finalSedation,
         devices: tempDevices
     };
     await PatientService.updatePatient(selectedPatientId, updates);
@@ -500,11 +665,75 @@ export default function App() {
     setEditingICUDetails(false);
   }
 
+  // --- INFUSION CALCULATOR LOGIC (UI HELPERS) ---
+  const addInfusionRow = (type: 'vaso' | 'sedation') => {
+      const newItem: InfusionItem = {
+          id: Math.random().toString(36).substr(2, 9),
+          drug: '',
+          flowRate: '',
+      };
+      
+      if (type === 'vaso') {
+          setActiveVasoDrugs([...activeVasoDrugs, newItem]);
+      } else {
+          setActiveSedationDrugs([...activeSedationDrugs, newItem]);
+      }
+  };
+
+  const updateInfusionRow = (type: 'vaso' | 'sedation', id: string, field: keyof InfusionItem, value: any) => {
+      const setter = type === 'vaso' ? setActiveVasoDrugs : setActiveSedationDrugs;
+      
+      setter(prev => prev.map(item => {
+          if (item.id === id) {
+              const updated = { ...item, [field]: value };
+              return updated;
+          }
+          return item;
+      }));
+  };
+
+  const removeInfusionRow = (type: 'vaso' | 'sedation', id: string) => {
+     if (type === 'vaso') {
+         setActiveVasoDrugs(prev => prev.filter(i => i.id !== id));
+     } else {
+         setActiveSedationDrugs(prev => prev.filter(i => i.id !== id));
+     }
+  };
+
+  // Sync effect: When infusions change in UI, update the temp text fields automatically
+  useEffect(() => {
+     if (!editingICUDetails || !selectedPatient) return; 
+
+     // Generate string for Vasoactive
+     if (activeVasoDrugs.length > 0) {
+         const lines = activeVasoDrugs.map(d => {
+             const doseDisplay = d.flowRate ? `${d.flowRate} ml/h` : '0 ml/h';
+             const calc = calculateDose(d.drug, d.flowRate, selectedPatient.estimatedWeight || 0);
+             const calcDisplay = calc.dose !== '...' && calc.dose !== '-' ? `(${calc.dose} ${calc.unit})` : '';
+             return `${d.drug || 'Sem nome'}: ${doseDisplay} ${calcDisplay}`;
+         });
+         setTempVasoactive(lines.join('\n'));
+     }
+
+     // Generate string for Sedation
+     if (activeSedationDrugs.length > 0) {
+        const lines = activeSedationDrugs.map(d => {
+            const doseDisplay = d.flowRate ? `${d.flowRate} ml/h` : '0 ml/h';
+            const calc = calculateDose(d.drug, d.flowRate, selectedPatient.estimatedWeight || 0);
+            const calcDisplay = calc.dose !== '...' && calc.dose !== '-' ? `(${calc.dose} ${calc.unit})` : '';
+            return `${d.drug || 'Sem nome'}: ${doseDisplay} ${calcDisplay}`;
+        });
+        setTempSedation(lines.join('\n'));
+     }
+  }, [activeVasoDrugs, activeSedationDrugs, editingICUDetails, selectedPatient?.estimatedWeight]);
+
+
   // --- ATTACHMENT HANDLERS ---
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files && event.target.files[0] && selectedPatientId) {
       const file = event.target.files[0];
       try {
+          // Note: If the bucket "patient-files" does not exist or permissions are missing, this will fail.
           const newAttachment = await PatientService.uploadAttachment(selectedPatientId, file);
           setPatients(prev => prev.map(p => {
              if (p.id === selectedPatientId) {
@@ -513,8 +742,11 @@ export default function App() {
              return p;
           }));
       } catch (err) {
-          alert('Erro ao enviar arquivo.');
+          alert('Erro ao enviar arquivo. Verifique se o arquivo não é muito grande ou se há permissões de rede.');
           console.error(err);
+      } finally {
+          // Reset input
+          if (fileInputRef.current) fileInputRef.current.value = '';
       }
     }
   };
@@ -733,7 +965,7 @@ export default function App() {
             <div 
               key={patient.id}
               onClick={() => setSelectedPatientId(patient.id)}
-              className={`p-4 rounded-lg mb-2 cursor-pointer transition-colors group border border-transparent ${selectedPatientId === patient.id ? 'bg-medical-600 border-medical-500' : 'bg-slate-800/50 hover:bg-slate-800 border-slate-800'}`}
+              className={`p-4 rounded-lg mb-2 cursor-pointer transition-colors group relative border border-transparent ${selectedPatientId === patient.id ? 'bg-medical-600 border-medical-500' : 'bg-slate-800/50 hover:bg-slate-800 border-slate-800'}`}
             >
               <div className="flex justify-between items-start">
                 <span className="font-medium text-slate-100 text-base">{patient.name}</span>
@@ -812,10 +1044,10 @@ export default function App() {
                         setShowTransferModal(true);
                       }}
                       className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium shadow transition-colors border bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
-                      title="Transferir Paciente"
+                      title="Transferir / Arquivar Paciente"
                     >
                        <ArrowRightLeft size={16} />
-                       <span className="hidden sm:inline">Transferir</span>
+                       <span className="hidden sm:inline">Ações</span>
                     </button>
 
                     {selectedPatient.status === 'active' && (
@@ -1216,47 +1448,223 @@ export default function App() {
                              </div>
 
                              {/* Vasoactive Drugs */}
-                             <div>
+                             <div className={`${editingICUDetails ? 'col-span-1 md:col-span-3' : 'col-span-1'}`}>
                                 <div className="flex items-center gap-2 mb-2 text-sm font-semibold text-gray-700">
                                    <Zap size={16} className="text-amber-500" />
                                    <h4>Drogas Vasoativas</h4>
                                 </div>
                                 {editingICUDetails ? (
-                                  <textarea
-                                    className="w-full h-24 p-2 text-base sm:text-sm border rounded bg-gray-50 focus:border-medical-500 outline-none resize-none"
-                                    value={tempVasoactive}
-                                    onChange={(e) => setTempVasoactive(e.target.value)}
-                                    placeholder="Ex: Noradrenalina..."
-                                  />
+                                  <div className="space-y-4">
+                                      {/* Calculator / Smart Input Area */}
+                                      <div className="bg-gray-50 p-3 rounded border border-gray-200">
+                                          <div className="flex items-center gap-2 mb-2 text-xs font-bold text-gray-500 uppercase">
+                                              <Calculator size={14}/> Calculadora de Infusão (Dose Smart)
+                                          </div>
+                                          {activeVasoDrugs.map((item) => {
+                                              const calc = calculateDose(item.drug, item.flowRate, selectedPatient.estimatedWeight || 0);
+                                              return (
+                                                  <div key={item.id} className="grid grid-cols-12 gap-2 mb-2 items-center bg-white p-2 rounded shadow-sm border border-gray-100">
+                                                      <div className="col-span-5 sm:col-span-4">
+                                                          <select 
+                                                              className="w-full text-sm font-bold border-gray-200 rounded p-1"
+                                                              value={VASOACTIVE_PRESETS.some(p => p.value === item.drug) ? item.drug : 'custom'}
+                                                              onChange={(e) => {
+                                                                  const val = e.target.value;
+                                                                  if (val === 'custom') {
+                                                                      updateInfusionRow('vaso', item.id, 'drug', '');
+                                                                  } else {
+                                                                      updateInfusionRow('vaso', item.id, 'drug', val);
+                                                                  }
+                                                              }}
+                                                          >
+                                                              <option value="" disabled>Selecione...</option>
+                                                              {VASOACTIVE_PRESETS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+                                                          </select>
+                                                          {/* Show Input if Custom or if current drug is not in presets (legacy support) */}
+                                                          {(!VASOACTIVE_PRESETS.some(p => p.value === item.drug) && item.drug !== '') && (
+                                                              <input 
+                                                                  type="text" 
+                                                                  placeholder="Nome da Droga"
+                                                                  className="w-full text-xs font-bold mt-1 border-gray-200 rounded p-1"
+                                                                  value={item.drug}
+                                                                  onChange={e => updateInfusionRow('vaso', item.id, 'drug', e.target.value)}
+                                                              />
+                                                          )}
+                                                          {/* Logic to handle switching to custom */}
+                                                          {item.drug === '' && !VASOACTIVE_PRESETS.some(p => p.value === '') && (
+                                                              <input 
+                                                                  type="text" 
+                                                                  placeholder="Nome da Droga"
+                                                                  autoFocus
+                                                                  className="w-full text-xs font-bold mt-1 border-gray-200 rounded p-1"
+                                                                  value={item.drug}
+                                                                  onChange={e => updateInfusionRow('vaso', item.id, 'drug', e.target.value)}
+                                                              />
+                                                          )}
+                                                      </div>
+                                                      <div className="col-span-3 sm:col-span-3">
+                                                          <div className="flex items-center gap-1">
+                                                              <input 
+                                                                  type="number" 
+                                                                  placeholder="0"
+                                                                  className="w-full text-sm border-gray-200 rounded p-1 text-center"
+                                                                  value={item.flowRate}
+                                                                  onChange={e => updateInfusionRow('vaso', item.id, 'flowRate', e.target.value)}
+                                                              />
+                                                              <span className="text-[10px] text-gray-500">ml/h</span>
+                                                          </div>
+                                                      </div>
+                                                      <div className="col-span-3 sm:col-span-4 text-center">
+                                                          <span className="text-xs font-bold text-blue-600 block">
+                                                              {calc.dose}
+                                                          </span>
+                                                          <span className="text-[9px] text-gray-400">{calc.unit}</span>
+                                                      </div>
+                                                      <div className="col-span-1 text-right">
+                                                          <button onClick={() => removeInfusionRow('vaso', item.id)} className="text-red-400 hover:text-red-600">
+                                                              <X size={16} />
+                                                          </button>
+                                                      </div>
+                                                  </div>
+                                              );
+                                          })}
+                                          <button onClick={() => addInfusionRow('vaso')} className="text-xs flex items-center gap-1 text-medical-600 font-medium hover:underline mt-2">
+                                              <PlusCircle size={14}/> Adicionar Droga Vasoativa
+                                          </button>
+                                      </div>
+
+                                      {/* Fallback Text Area (Syncs with above) */}
+                                      <div>
+                                          <label className="text-[10px] text-gray-400 uppercase font-bold mb-1 block">Visualização de Texto (Prontuário)</label>
+                                          <textarea
+                                              className="w-full h-20 p-2 text-base sm:text-sm border rounded bg-white focus:border-medical-500 outline-none resize-none"
+                                              value={tempVasoactive}
+                                              onChange={(e) => setTempVasoactive(e.target.value)}
+                                              placeholder="Selecione as drogas acima para gerar este texto automaticamente..."
+                                          />
+                                      </div>
+                                  </div>
                                 ) : (
                                   <div className="text-sm text-gray-700 bg-gray-50 p-3 rounded border border-gray-100 min-h-[60px]">
-                                    {selectedPatient.vasoactiveDrugs ? selectedPatient.vasoactiveDrugs : <span className="text-gray-400 italic">Sem drogas vasoativas.</span>}
+                                    {selectedPatient.vasoactiveDrugs ? (
+                                        <DrugListDisplay text={selectedPatient.vasoactiveDrugs} />
+                                    ) : (
+                                        <span className="text-gray-400 italic">Sem drogas vasoativas.</span>
+                                    )}
                                   </div>
                                 )}
                              </div>
 
                              {/* Sedation & Analgesia */}
-                             <div>
+                             <div className={`${editingICUDetails ? 'col-span-1 md:col-span-3' : 'col-span-1'}`}>
                                 <div className="flex items-center gap-2 mb-2 text-sm font-semibold text-gray-700">
                                    <Moon size={16} className="text-indigo-500" />
                                    <h4>Sedoanalgesia</h4>
                                 </div>
                                 {editingICUDetails ? (
-                                  <textarea
-                                    className="w-full h-24 p-2 text-base sm:text-sm border rounded bg-gray-50 focus:border-medical-500 outline-none resize-none"
-                                    value={tempSedation}
-                                    onChange={(e) => setTempSedation(e.target.value)}
-                                    placeholder="Ex: Propofol, Fentanil..."
-                                  />
+                                  <div className="space-y-4">
+                                      {/* Calculator Area */}
+                                      <div className="bg-gray-50 p-3 rounded border border-gray-200">
+                                          <div className="flex items-center gap-2 mb-2 text-xs font-bold text-gray-500 uppercase">
+                                              <Syringe size={14}/> Calculadora de Sedação
+                                          </div>
+                                          {activeSedationDrugs.map((item) => {
+                                              const calc = calculateDose(item.drug, item.flowRate, selectedPatient.estimatedWeight || 0);
+                                              return (
+                                                  <div key={item.id} className="grid grid-cols-12 gap-2 mb-2 items-center bg-white p-2 rounded shadow-sm border border-gray-100">
+                                                      <div className="col-span-5 sm:col-span-4">
+                                                          <select 
+                                                              className="w-full text-sm font-bold border-gray-200 rounded p-1"
+                                                              value={SEDATION_PRESETS.some(p => p.value === item.drug) ? item.drug : 'custom'}
+                                                              onChange={(e) => {
+                                                                  const val = e.target.value;
+                                                                  if (val === 'custom') {
+                                                                      updateInfusionRow('sedation', item.id, 'drug', '');
+                                                                  } else {
+                                                                      updateInfusionRow('sedation', item.id, 'drug', val);
+                                                                  }
+                                                              }}
+                                                          >
+                                                              <option value="" disabled>Selecione...</option>
+                                                              {SEDATION_PRESETS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+                                                          </select>
+                                                          
+                                                          {/* Custom Input Logic */}
+                                                          {(!SEDATION_PRESETS.some(p => p.value === item.drug) && item.drug !== '') && (
+                                                              <input 
+                                                                  type="text" 
+                                                                  placeholder="Nome da Droga"
+                                                                  className="w-full text-xs font-bold mt-1 border-gray-200 rounded p-1"
+                                                                  value={item.drug}
+                                                                  onChange={e => updateInfusionRow('sedation', item.id, 'drug', e.target.value)}
+                                                              />
+                                                          )}
+                                                          {item.drug === '' && !SEDATION_PRESETS.some(p => p.value === '') && (
+                                                              <input 
+                                                                  type="text" 
+                                                                  placeholder="Nome da Droga"
+                                                                  autoFocus
+                                                                  className="w-full text-xs font-bold mt-1 border-gray-200 rounded p-1"
+                                                                  value={item.drug}
+                                                                  onChange={e => updateInfusionRow('sedation', item.id, 'drug', e.target.value)}
+                                                              />
+                                                          )}
+                                                      </div>
+                                                      <div className="col-span-3 sm:col-span-3">
+                                                          <div className="flex items-center gap-1">
+                                                              <input 
+                                                                  type="number" 
+                                                                  placeholder="0"
+                                                                  className="w-full text-sm border-gray-200 rounded p-1 text-center"
+                                                                  value={item.flowRate}
+                                                                  onChange={e => updateInfusionRow('sedation', item.id, 'flowRate', e.target.value)}
+                                                              />
+                                                              <span className="text-[10px] text-gray-500">ml/h</span>
+                                                          </div>
+                                                      </div>
+                                                      <div className="col-span-3 sm:col-span-4 text-center">
+                                                          <span className="text-xs font-bold text-indigo-600 block">
+                                                              {calc.dose}
+                                                          </span>
+                                                          <span className="text-[9px] text-gray-400">{calc.unit}</span>
+                                                      </div>
+                                                      <div className="col-span-1 text-right">
+                                                          <button onClick={() => removeInfusionRow('sedation', item.id)} className="text-red-400 hover:text-red-600">
+                                                              <X size={16} />
+                                                          </button>
+                                                      </div>
+                                                  </div>
+                                              );
+                                          })}
+                                          <button onClick={() => addInfusionRow('sedation')} className="text-xs flex items-center gap-1 text-medical-600 font-medium hover:underline mt-2">
+                                              <PlusCircle size={14}/> Adicionar Sedativo
+                                          </button>
+                                      </div>
+
+                                      {/* Fallback Text Area */}
+                                      <div>
+                                          <label className="text-[10px] text-gray-400 uppercase font-bold mb-1 block">Visualização de Texto (Prontuário)</label>
+                                          <textarea
+                                              className="w-full h-20 p-2 text-base sm:text-sm border rounded bg-white focus:border-medical-500 outline-none resize-none"
+                                              value={tempSedation}
+                                              onChange={(e) => setTempSedation(e.target.value)}
+                                              placeholder="Selecione os sedativos acima para gerar este texto automaticamente..."
+                                          />
+                                      </div>
+                                  </div>
                                 ) : (
                                   <div className="text-sm text-gray-700 bg-gray-50 p-3 rounded border border-gray-100 min-h-[60px]">
-                                    {selectedPatient.sedationAnalgesia ? selectedPatient.sedationAnalgesia : <span className="text-gray-400 italic">Sem sedação contínua.</span>}
+                                    {selectedPatient.sedationAnalgesia ? (
+                                        <DrugListDisplay text={selectedPatient.sedationAnalgesia} />
+                                    ) : (
+                                        <span className="text-gray-400 italic">Sem sedação contínua.</span>
+                                    )}
                                   </div>
                                 )}
                              </div>
 
                              {/* Invasive Devices */}
-                             <div>
+                             <div className="col-span-1">
                                 <div className="flex items-center gap-2 mb-2 text-sm font-semibold text-gray-700">
                                    <Cable size={16} className="text-slate-500" />
                                    <h4>Dispositivos Invasivos</h4>
@@ -1496,6 +1904,8 @@ export default function App() {
             </div>
         )}
 
+        {/* --- MODALS SECTION --- */}
+        
         {/* Modal for New Log */}
         {showAddLogModal && (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-0 md:p-4 print:hidden">
@@ -1612,6 +2022,8 @@ export default function App() {
                       onChange={e => setNewPatientData({...newPatientData, admissionDate: e.target.value})}
                     />
                  </div>
+                 
+                 {/* SAVE BUTTON */}
                  <div className="pt-4 pb-2 mt-auto">
                     <button type="submit" className="w-full bg-medical-600 text-white py-3 rounded-md hover:bg-medical-700 font-medium text-lg">
                       {editingPatientId ? 'Salvar Alterações' : 'Cadastrar Paciente'}
@@ -1628,7 +2040,7 @@ export default function App() {
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden">
               <div className="p-4 border-b flex justify-between items-center bg-gray-50">
                 <h3 className="text-md font-bold text-gray-900">Transferir Paciente</h3>
-                <button onClick={() => setShowTransferModal(false)} className="text-gray-400 hover:text-gray-600 p-2">
+                <button onClick={() => { setShowTransferModal(false); setTransferPassword(''); }} className="text-gray-400 hover:text-gray-600 p-2">
                   <X size={20} />
                 </button>
               </div>
@@ -1640,23 +2052,71 @@ export default function App() {
                     <select 
                       className="w-full border rounded-md p-3 text-base focus:border-medical-500 outline-none bg-white"
                       value={transferTarget}
-                      onChange={e => setTransferTarget(e.target.value)}
+                      onChange={e => {
+                          setTransferTarget(e.target.value);
+                          setTransferPassword(''); // Reset password when target changes
+                      }}
                     >
                       <option value="UTI">UTI</option>
                       <option value="Enfermaria">Enfermaria</option>
                       <option value="Finalizados">Alta / Finalizado</option>
+                      <option value="Arquivo Morto">Arquivo Morto (Inativar)</option>
                     </select>
                  </div>
+
+                 {/* DANGER ZONE: PASSWORD CONFIRMATION FOR 'ARQUIVO MORTO' */}
+                 {transferTarget === 'Arquivo Morto' && (
+                     <div className="bg-red-50 p-4 rounded-md border border-red-200 animate-in fade-in slide-in-from-top-2">
+                        <div className="flex items-start gap-2 mb-2 text-red-700">
+                            <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+                            <p className="text-xs font-bold leading-tight">
+                                Atenção: Enviar para o Arquivo Morto removerá o paciente da lista ativa permanentemente.
+                            </p>
+                        </div>
+                        <label className="block text-xs font-semibold text-red-800 mb-1">Digite a senha de acesso para confirmar:</label>
+                        <input 
+                            autoFocus
+                            type="password"
+                            placeholder="Senha Mestra"
+                            className="w-full border border-red-300 rounded p-2 text-sm focus:ring-2 focus:ring-red-200 outline-none"
+                            value={transferPassword}
+                            onChange={(e) => setTransferPassword(e.target.value)}
+                        />
+                     </div>
+                 )}
                  
                  <div className="pt-2 flex gap-3">
-                    <button onClick={() => setShowTransferModal(false)} className="flex-1 px-3 py-3 border rounded-md text-gray-700 hover:bg-gray-50 text-sm">Cancelar</button>
-                    <button onClick={handleTransferPatient} className="flex-1 px-3 py-3 bg-medical-600 text-white rounded-md hover:bg-medical-700 font-medium text-sm">
-                      Confirmar
+                    <button onClick={() => { setShowTransferModal(false); setTransferPassword(''); }} className="flex-1 px-3 py-3 border rounded-md text-gray-700 hover:bg-gray-50 text-sm">Cancelar</button>
+                    <button 
+                      onClick={handleTransferPatient} 
+                      disabled={transferTarget === 'Arquivo Morto' && !transferPassword}
+                      className={`flex-1 px-3 py-3 text-white rounded-md font-medium text-sm transition-colors ${transferTarget === 'Arquivo Morto' ? 'bg-red-600 hover:bg-red-700 disabled:bg-red-300' : 'bg-medical-600 hover:bg-medical-700'}`}
+                    >
+                      {transferTarget === 'Arquivo Morto' ? 'Arquivar Permanentemente' : 'Confirmar'}
                     </button>
                  </div>
               </div>
             </div>
           </div>
+        )}
+
+        {/* --- PRINT MODALS (PREVIOUSLY MISSING) --- */}
+        
+        {/* Individual Patient Print View */}
+        {showPrintPreview && selectedPatient && (
+            <PatientPrintView 
+                patient={selectedPatient} 
+                onClose={() => setShowPrintPreview(false)} 
+            />
+        )}
+
+        {/* Bulk List Print View */}
+        {showBulkPrintPreview && (
+            <PatientListPrintView 
+                patients={filteredPatients} 
+                unit={activeTab} 
+                onClose={() => setShowBulkPrintPreview(false)} 
+            />
         )}
 
       </main>

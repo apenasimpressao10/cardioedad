@@ -55,6 +55,7 @@ export const fetchPatients = async (): Promise<Patient[]> => {
       daily_logs (*),
       attachments (*)
     `)
+    .neq('status', 'deleted') // CRITICAL: Filter out soft-deleted patients
     .order('created_at', { ascending: false });
 
   if (error) {
@@ -127,10 +128,48 @@ export const updatePatient = async (patientId: string, updates: Partial<Patient>
   if (error) throw error;
 };
 
-export const upsertDailyLog = async (patientId: string, log: DailyLog) => {
-  // Check if it's a new log (generated ID in frontend usually numeric or random, UUID in DB)
-  // For simplicity, if we pass an ID that looks like a UUID, we update, else insert.
+export const deletePatient = async (patientId: string) => {
+  console.log("Attempting to delete patient (Strategy: Soft First):", patientId);
+
+  // STRATEGY 1: SOFT DELETE (Logical removal)
+  // We prioritize this because the 'anon' user usually has UPDATE permissions but NOT DELETE permissions.
+  // This marks the patient as deleted so fetchPatients() filters them out.
+  const { error: softError } = await supabase
+    .from('patients')
+    .update({ status: 'deleted' })
+    .eq('id', patientId);
+
+  if (!softError) {
+    console.log("Soft delete successful");
+    return; // Success!
+  }
+
+  console.warn("Soft delete failed, attempting Hard Delete...", softError);
+
+  // STRATEGY 2: HARD DELETE (Physical removal)
+  // If soft delete failed (e.g. constraints on status column), try brute force.
   
+  // Clean attachments
+  await supabase.from('attachments').delete().eq('patient_id', patientId);
+  // Clean logs
+  await supabase.from('daily_logs').delete().eq('patient_id', patientId);
+
+  // Try deleting patient
+  const { error: deleteError } = await supabase
+    .from('patients')
+    .delete()
+    .eq('id', patientId);
+
+  if (deleteError) {
+    console.error("Hard delete also failed:", deleteError);
+    // If both fail, we throw the error to alert the user
+    throw softError || deleteError;
+  }
+  
+  console.log("Hard delete successful");
+};
+
+export const upsertDailyLog = async (patientId: string, log: DailyLog) => {
   const payload = {
     patient_id: patientId,
     date: log.date,
@@ -142,7 +181,6 @@ export const upsertDailyLog = async (patientId: string, log: DailyLog) => {
     fluid_balance: log.fluidBalance
   };
 
-  // If the ID is a valid UUID, we include it to upsert. If it's a temp ID from frontend, we omit it to create new.
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(log.id);
   
   let result;
@@ -157,7 +195,6 @@ export const upsertDailyLog = async (patientId: string, log: DailyLog) => {
 };
 
 export const uploadAttachment = async (patientId: string, file: File) => {
-  // 1. Upload to Storage
   const fileExt = file.name.split('.').pop();
   const fileName = `${patientId}/${Math.random().toString(36).substring(2)}.${fileExt}`;
   
@@ -167,12 +204,10 @@ export const uploadAttachment = async (patientId: string, file: File) => {
 
   if (uploadError) throw uploadError;
 
-  // 2. Get Public URL
   const { data: { publicUrl } } = supabase.storage
     .from('patient-files')
     .getPublicUrl(fileName);
 
-  // 3. Create Record in DB
   const { data, error: dbError } = await supabase
     .from('attachments')
     .insert({
@@ -189,8 +224,6 @@ export const uploadAttachment = async (patientId: string, file: File) => {
 };
 
 export const deleteAttachment = async (attachmentId: string) => {
-    // Note: To delete the actual file from storage, we'd need the path. 
-    // For this prototype, we just delete the DB record.
     const { error } = await supabase.from('attachments').delete().eq('id', attachmentId);
     if (error) throw error;
 };

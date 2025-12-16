@@ -45,6 +45,34 @@ const CLINICAL_DIRECTION: Record<string, 'high_bad' | 'low_bad'> = {
   'SatO2': 'low_bad'
 };
 
+// Abbreviations for display to save space
+const TEST_ABBREVIATIONS: Record<string, string> = {
+  'Sódio': 'Na+',
+  'Potássio': 'K+',
+  'Ureia': 'Ur',
+  'Creatinina': 'Cr',
+  'Hemoglobina': 'Hb',
+  'Hematócrito': 'Ht',
+  'Leucócitos': 'Leuco',
+  'Plaquetas': 'Plq',
+  'PCR': 'PCR',
+  'aPTT': 'aPTT',
+  'INR': 'INR',
+  'pH': 'pH',
+  'pO2': 'pO2',
+  'pCO2': 'pCO2',
+  'Bicarbonato': 'BIC',
+  'SatO2': 'Sat',
+  'Lactato': 'Lac',
+  'Troponina': 'Trop',
+  'Dímero-D': 'DD',
+  'Magnésio': 'Mg',
+  'Cálcio': 'Ca',
+  'Fósforo': 'P',
+  'Glicemia': 'Glic',
+  'Procalcitonina': 'Procal'
+};
+
 const LabResultTable: React.FC<LabResultTableProps> = ({ logs, onUpdateValue }) => {
   const [editingCell, setEditingCell] = useState<{ logId: string; testName: string } | null>(null);
   const [tempValue, setTempValue] = useState('');
@@ -147,12 +175,12 @@ const LabResultTable: React.FC<LabResultTableProps> = ({ logs, onUpdateValue }) 
                         {/* Sticky Header Column */}
                         <th 
                             scope="col" 
-                            className="sticky left-0 z-20 bg-gray-50 px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider border-r border-gray-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] w-[140px] min-w-[140px]"
+                            className="sticky left-0 z-20 bg-gray-50 px-2 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider border-r border-gray-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] w-[80px] min-w-[80px]"
                         >
                             Exame
                         </th>
                         {sortedLogs.map(log => (
-                            <th key={log.id} scope="col" className="px-3 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider min-w-[100px]">
+                            <th key={log.id} scope="col" className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider min-w-[80px]">
                                 <div className="flex flex-col">
                                     <span>{new Date(log.date).toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit'})}</span>
                                     <span className="text-[10px] font-normal text-gray-400">{new Date(log.date).toLocaleDateString('pt-BR', {weekday: 'short'})}</span>
@@ -165,15 +193,15 @@ const LabResultTable: React.FC<LabResultTableProps> = ({ logs, onUpdateValue }) 
                     {allTestNames.map((testName, rowIdx) => (
                         <tr key={testName} className={rowIdx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
                             {/* Sticky Test Name Column */}
-                            <td className="sticky left-0 z-10 bg-inherit px-3 py-3 text-sm font-medium text-gray-900 border-r border-gray-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] truncate" title={testName}>
-                                {testName}
+                            <td className="sticky left-0 z-10 bg-inherit px-2 py-2 text-xs font-bold text-gray-900 border-r border-gray-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] truncate" title={testName}>
+                                {TEST_ABBREVIATIONS[testName] || testName}
                             </td>
                             
                             {/* Data Columns */}
                             {sortedLogs.map((log, colIdx) => {
                                 const result = log.labs.find(l => l.testName === testName);
                                 const val = result ? result.value : '';
-                                const unit = result ? result.unit : '';
+                                // Unit ignored as per request
                                 
                                 // Get previous value for trend arrow
                                 const prevLog = colIdx > 0 ? sortedLogs[colIdx - 1] : undefined;
@@ -185,7 +213,7 @@ const LabResultTable: React.FC<LabResultTableProps> = ({ logs, onUpdateValue }) 
                                 return (
                                     <td 
                                         key={`${log.id}-${testName}`} 
-                                        className="px-2 py-2 text-sm text-gray-500 text-center relative group touch-manipulation"
+                                        className="px-1 py-1 text-sm text-gray-500 text-center relative group touch-manipulation"
                                         onClick={() => !isEditing && handleStartEdit(log.id, testName, val.toString())}
                                     >
                                         {isEditing ? (
@@ -206,7 +234,7 @@ const LabResultTable: React.FC<LabResultTableProps> = ({ logs, onUpdateValue }) 
                                                 <span className={`${!val ? 'text-gray-300' : 'font-medium text-gray-800'}`}>
                                                     {val || '-'}
                                                 </span>
-                                                {val && unit && <span className="text-[10px] text-gray-400 ml-0.5 hidden sm:inline">{unit}</span>}
+                                                {/* Unit display removed */}
                                                 {val && prevVal && getChangeIndicator(testName, val.toString(), prevVal)}
                                             </div>
                                         )}

@@ -53,8 +53,8 @@ export interface Patient {
   gender: 'Masculino' | 'Feminino' | 'Outro';
   estimatedWeight?: number; // New field for weight in kg
   bedNumber: string;
-  unit: 'UTI' | 'Enfermaria';
-  status: 'active' | 'completed'; // New field for active vs finalized patients
+  unit: 'UTI' | 'Enfermaria' | 'Arquivo Morto'; // Added Arquivo Morto
+  status: 'active' | 'completed' | 'deleted'; // Added 'deleted' for soft delete logic
   admissionDate: string;
   admissionHistory: string; // New text field
   personalHistory: string[]; // New list
