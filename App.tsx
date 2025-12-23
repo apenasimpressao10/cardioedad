@@ -2,8 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Activity, BrainCircuit, PlusCircle, ChevronDown, ChevronUp, Menu, X, 
-  ClipboardList, History, Pencil, Check, ArrowUp, ArrowDown, Trash2, 
-  UserPlus, Printer, ArrowRightLeft, Pill, Microscope, HeartPulse, LogOut, Droplets, Wind, Gauge, Calculator, Calendar, FlaskConical, AlertCircle, Thermometer
+  ClipboardList, History, Pencil, Check, Trash2, 
+  UserPlus, Printer, ArrowRightLeft, Pill, Microscope, HeartPulse, LogOut, Droplets, Wind, Gauge, Calculator, Calendar, FlaskConical, AlertCircle
 } from 'lucide-react';
 import { Patient, DailyLog, Device, Ventilation } from './types';
 import DailyLogForm from './components/DailyLogForm';
@@ -21,12 +21,7 @@ const stringifyError = (err: any): string => {
   if (!err) return 'Erro desconhecido';
   if (typeof err === 'string') return err;
   if (err.message) return err.message;
-  if (err.details) return err.details;
-  try {
-    return JSON.stringify(err);
-  } catch (e) {
-    return String(err);
-  }
+  return JSON.stringify(err);
 };
 
 const INITIAL_NEW_PATIENT_STATE: Omit<Patient, 'id' | 'dailyLogs' | 'attachments'> = {
@@ -70,7 +65,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'UTI' | 'Enfermaria' | 'Finalizados'>('UTI');
   const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth >= 1024);
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({
-    'dx': false, 'icu': false, 'antecedents': false, 'rx': false, 'labs': false, 'history': false
+    'dx': false, 'icu': false, 'antecedents': false, 'rx': false, 'labs': false, 'history': false, 'devices': false
   });
   const [collapsedLogs, setCollapsedLogs] = useState<Record<string, boolean>>({});
 
@@ -95,6 +90,7 @@ export default function App() {
 
   const [newDeviceName, setNewDeviceName] = useState('');
   const [newDeviceDate, setNewDeviceDate] = useState(new Date().toISOString().split('T')[0]);
+  const [editingDeviceId, setEditingDeviceId] = useState<string | null>(null);
   const [doseCalc, setDoseCalc] = useState({ drug: '', mg: '', ml: '', rate: '', result: '', unit: 'mg', calcType: 'mcg/kg/min' });
 
   useEffect(() => { if (isAuthenticated) loadPatients(); }, [isAuthenticated]);
@@ -170,100 +166,49 @@ export default function App() {
     let newList = [...(selectedPatient[field] || [])];
     if (action === 'add' && value) newList.push(value);
     else if (action === 'remove' && index !== undefined) newList.splice(index, 1);
+    else if (action === 'edit' && index !== undefined && value) newList[index] = value;
+
+    setPatients(prev => prev.map(p => p.id === selectedPatientId ? { ...p, [field]: newList } : p));
+
     try {
       await PatientService.updatePatient(selectedPatientId, { [field]: newList });
-      await loadPatients();
     } catch (err) {
-      alert(`Erro: ${stringifyError(err)}`);
+      alert(`Erro ao salvar alteração: ${stringifyError(err)}`);
+      loadPatients();
     }
   };
 
   const updateICUParams = async (updates: Partial<Patient>) => {
     if (!selectedPatientId) return;
+    setPatients(prev => prev.map(p => p.id === selectedPatientId ? { ...p, ...updates } : p));
     try { 
       await PatientService.updatePatient(selectedPatientId, updates); 
-      await loadPatients(); 
     } catch (err) { 
-      alert(`Erro: ${stringifyError(err)}`); 
+      alert(`Erro ao sincronizar parâmetros: ${stringifyError(err)}`); 
+      loadPatients();
     }
   };
 
   const handleVentilationModeChange = async (mode: Ventilation['mode']) => {
     if (!selectedPatientId || !selectedPatient) return;
-    
-    // Constrói um objeto limpo para evitar problemas de tipos/estado
-    const baseVent = selectedPatient.ventilation || { 
-      fio2: '21', peep: '0', rate: '0', volume: '0', pressure: '0' 
-    };
-    
-    const updatedVent: Ventilation = {
-      ...baseVent,
-      mode: mode
-    };
-    
-    // Atualiza imediatamente
+    const baseVent = selectedPatient.ventilation || { fio2: '21', peep: '0', rate: '0', volume: '0', pressure: '0' };
+    const updatedVent: Ventilation = { ...baseVent, mode };
     await updateICUParams({ ventilation: updatedVent });
   };
 
-  const handleDrugPresetClick = (preset: typeof DRUG_PRESETS[0]) => {
-    setDoseCalc({
-      drug: preset.name,
-      mg: preset.mg.toString(),
-      ml: preset.ml.toString(),
-      unit: preset.unit,
-      calcType: preset.calcType,
-      rate: doseCalc.rate,
-      result: ''
-    });
-  };
-
-  const calculateDose = () => {
-    if (!selectedPatient || !doseCalc.mg || !doseCalc.ml || !doseCalc.rate) return;
-    const mg = parseFloat(doseCalc.mg);
-    const ml = parseFloat(doseCalc.ml);
-    const rate = parseFloat(doseCalc.rate);
-    const weight = selectedPatient.estimatedWeight || 70;
-    
-    let result = 0;
-    if (doseCalc.calcType === 'mcg/kg/min') {
-      result = ((mg / ml) * 1000 * rate) / (weight * 60);
-    } else if (doseCalc.calcType === 'UI/min') {
-      result = ((mg / ml) * rate) / 60;
-    } else if (doseCalc.calcType === 'mcg/kg/h') {
-      result = ((mg / ml) * 1000 * rate) / weight;
-    }
-    
-    setDoseCalc({ ...doseCalc, result: result.toFixed(3) });
-  };
-
-  const addDoseToText = () => {
-    if (!selectedPatient || !doseCalc.result) return;
-    const entry = `${doseCalc.drug}: ${doseCalc.rate} ml/h [${doseCalc.result} ${doseCalc.calcType}]`;
-    const current = safeString(selectedPatient.vasoactiveDrugs);
-    const updated = current ? `${current}\n${entry}` : entry;
-    updateICUParams({ vasoactiveDrugs: updated });
-  };
-
-  // Cálculo do ROX Index e Relação P/F
   const calculateRespIndices = () => {
     if (!selectedPatient) return { rox: null, pf: null };
-    
     const sortedLogs = [...selectedPatient.dailyLogs].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    
-    // Encontra os últimos dados disponíveis
-    const lastSatLog = sortedLogs.find(l => l.vitalSigns.oxygenSaturation);
-    const lastRRLog = sortedLogs.find(l => l.vitalSigns.respiratoryRate);
     const lastPO2Log = sortedLogs.find(l => l.labs?.some(exam => exam.testName === 'pO2'));
-    
     const fio2Val = parseFloat(selectedPatient.ventilation?.fio2 || '21') / 100;
     
     let rox = null;
+    const lastSatLog = sortedLogs.find(l => l.vitalSigns.oxygenSaturation);
+    const lastRRLog = sortedLogs.find(l => l.vitalSigns.respiratoryRate);
     if (lastSatLog && lastRRLog && fio2Val > 0) {
       const spo2 = parseFloat(lastSatLog.vitalSigns.oxygenSaturation);
       const rr = parseFloat(lastRRLog.vitalSigns.respiratoryRate);
-      if (!isNaN(spo2) && !isNaN(rr) && rr > 0) {
-        rox = ((spo2 / fio2Val) / rr).toFixed(2);
-      }
+      if (!isNaN(spo2) && !isNaN(rr) && rr > 0) rox = ((spo2 / fio2Val) / rr).toFixed(2);
     }
 
     let pf = null;
@@ -271,13 +216,36 @@ export default function App() {
       const po2Exam = lastPO2Log.labs.find(e => e.testName === 'pO2');
       if (po2Exam) {
         const po2 = parseFloat(po2Exam.value.toString().replace(',', '.'));
-        if (!isNaN(po2)) {
-          pf = (po2 / fio2Val).toFixed(0);
-        }
+        if (!isNaN(po2)) pf = (po2 / fio2Val).toFixed(0);
       }
     }
-
     return { rox, pf };
+  };
+
+  const handleDrugPresetClick = (preset: typeof DRUG_PRESETS[0]) => {
+    setDoseCalc({ drug: preset.name, mg: preset.mg.toString(), ml: preset.ml.toString(), rate: '', result: '', unit: preset.unit, calcType: preset.calcType });
+  };
+
+  const calculateDose = () => {
+    const mg = parseFloat(doseCalc.mg);
+    const ml = parseFloat(doseCalc.ml);
+    const rate = parseFloat(doseCalc.rate);
+    const weight = selectedPatient?.estimatedWeight || 70;
+    if (isNaN(mg) || isNaN(ml) || isNaN(rate) || ml === 0) return;
+    let res = 0;
+    const concentration = mg / ml;
+    if (doseCalc.calcType === 'mcg/kg/min') res = (rate * concentration * 1000) / (weight * 60);
+    else if (doseCalc.calcType === 'mcg/kg/h') res = (rate * concentration * 1000) / weight;
+    else if (doseCalc.calcType === 'UI/min') res = (rate * concentration) / 60;
+    setDoseCalc(prev => ({ ...prev, result: res.toFixed(2) }));
+  };
+
+  const addDoseToText = () => {
+    if (!doseCalc.result || !selectedPatient) return;
+    const newEntry = `${doseCalc.drug}: ${doseCalc.rate} ml/h (${doseCalc.result} ${doseCalc.calcType})`;
+    const current = safeString(selectedPatient.vasoactiveDrugs);
+    const updated = current ? `${current}\n${newEntry}` : newEntry;
+    updateICUParams({ vasoactiveDrugs: updated });
   };
 
   const totalFluidBalance = selectedPatient?.dailyLogs.reduce((acc, log) => acc + (log.fluidBalance?.net || 0), 0) || 0;
@@ -287,7 +255,7 @@ export default function App() {
       <div className="flex h-screen items-center justify-center bg-slate-900 p-4 font-sans text-black">
         <div className="bg-white p-8 rounded-2xl shadow-2xl w-full max-sm text-center border border-slate-700">
           <Activity className="text-medical-600 mb-4 mx-auto" size={48} />
-          <h1 className="text-xl font-bold mb-6 tracking-tight uppercase">CardioEDAD</h1>
+          <h1 className="text-xl font-bold mb-6 tracking-tight uppercase text-black">CardioEDAD</h1>
           <form onSubmit={handleLogin} className="space-y-4">
             <input type="password" autoFocus placeholder="Senha de Acesso" className="w-full border-2 border-slate-200 p-3 rounded-xl text-center outline-none focus:border-medical-500 font-medium text-black" value={passwordInput} onChange={e => setPasswordInput(e.target.value)} />
             <button type="submit" className="w-full bg-medical-600 text-white p-3 rounded-xl font-bold shadow-lg hover:bg-medical-700 transition-all">Entrar</button>
@@ -299,26 +267,22 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-white overflow-hidden font-sans text-[13px] lg:text-[15px] text-black">
-      {/* Sidebar */}
       <aside className={`fixed inset-y-0 left-0 z-30 lg:static transition-all duration-300 transform ${isSidebarOpen ? 'translate-x-0 w-64 lg:w-72' : '-translate-x-full lg:translate-x-0 lg:w-0'} bg-slate-900 text-white flex flex-col shadow-xl border-r border-slate-700`}>
         <div className="p-4 border-b border-slate-700 flex items-center justify-between">
           <div className="flex items-center gap-2"><Activity className="text-medical-400" size={20} /><h1 className="font-bold text-base lg:text-lg tracking-tight">CardioEDAD</h1></div>
           <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden text-slate-400 hover:text-white"><X size={24}/></button>
         </div>
-        
         <div className="flex border-b border-slate-700 bg-slate-800">
           {['UTI', 'Enfermaria', 'Finalizados'].map(t => (
             <button key={t} onClick={() => setActiveTab(t as any)} className={`flex-1 py-3 text-[7px] lg:text-[9px] font-bold uppercase tracking-widest transition-all ${activeTab === t ? 'bg-medical-600 text-white border-b-2 border-white' : 'text-slate-400 hover:text-white'}`}>{t}</button>
           ))}
         </div>
-
         <div className="p-3 space-y-2">
           <button onClick={() => { setEditingPatientId(null); setNewPatientData(INITIAL_NEW_PATIENT_STATE); setShowAddPatientModal(true); }} className="w-full flex items-center justify-center gap-2 bg-slate-700 p-2.5 rounded-xl text-[12px] font-bold border border-slate-600 hover:bg-slate-600 transition-all text-white shadow-sm uppercase"><UserPlus size={18} /> Novo Paciente</button>
           <button onClick={() => setShowPlantaoPrint(true)} className="w-full flex items-center justify-center gap-2 bg-slate-800 p-2.5 rounded-xl text-[11px] font-bold border border-slate-700 hover:bg-slate-700 transition-all text-slate-300 uppercase"><Printer size={16} /> Plantão</button>
         </div>
-
         <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1">
-          {isLoading && <div className="p-4 text-center text-slate-500 animate-pulse text-[10px] uppercase font-bold">Sincronizando...</div>}
+          {isLoading && <div className="p-4 text-center text-slate-500 animate-pulse text-[10px] uppercase font-bold">Aguarde...</div>}
           {filteredPatients.map(p => (
             <div key={p.id} onClick={() => { setSelectedPatientId(p.id); if (window.innerWidth < 1024) setIsSidebarOpen(false); }} className={`p-3 rounded-xl cursor-pointer transition-all border ${selectedPatientId === p.id ? 'bg-medical-700 border-white text-white shadow-md' : 'bg-transparent border-transparent hover:bg-slate-800'}`}>
               <div className="flex justify-between items-center">
@@ -328,13 +292,11 @@ export default function App() {
             </div>
           ))}
         </div>
-        
         <div className="p-4 border-t border-slate-700">
           <button onClick={handleLogout} className="w-full flex items-center gap-2 text-[12px] text-slate-400 hover:text-white transition-colors py-2 px-1 rounded hover:bg-slate-800"><LogOut size={16}/> Sair</button>
         </div>
       </aside>
 
-      {/* Main Content */}
       <main className="flex-1 flex flex-col overflow-hidden bg-white">
         <header className="bg-slate-50 border-b px-6 py-3 flex flex-col md:flex-row items-center justify-between gap-3 shadow-sm z-20">
           <div className="flex items-center gap-4 w-full md:w-auto">
@@ -364,7 +326,7 @@ export default function App() {
         {selectedPatient ? (
           <div className="flex-1 overflow-y-auto p-4 lg:p-6 space-y-6 bg-white">
             
-            {/* Hipóteses Diagnósticas */}
+            {/* 1. Hipóteses Diagnósticas */}
             <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
               <div className="px-4 py-2 bg-slate-100 border-b flex items-center justify-between cursor-pointer" onClick={() => toggleSection('dx')}>
                 <h3 className="font-bold text-black text-[12px] uppercase tracking-wider flex items-center gap-2"><BrainCircuit size={18} className="text-medical-600"/> Hipóteses Diagnósticas</h3>
@@ -403,7 +365,7 @@ export default function App() {
               )}
             </section>
 
-            {/* Antecedentes */}
+            {/* 2. Antecedentes & Medicações Habituais (Restaurado conforme solicitado) */}
             <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
               <div className="px-4 py-2 bg-slate-100 border-b flex items-center justify-between cursor-pointer" onClick={() => toggleSection('antecedents')}>
                 <h3 className="font-bold text-black text-[12px] uppercase tracking-wider flex items-center gap-2"><HeartPulse size={18} className="text-red-600"/> Antecedentes & Medicações Habituais</h3>
@@ -443,7 +405,32 @@ export default function App() {
               )}
             </section>
 
-            {/* Prescrição */}
+            {/* 3. Evolução Laboratorial (Movido para cima da UTI conforme solicitado) */}
+            <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="px-4 py-2 bg-slate-100 border-b flex items-center justify-between cursor-pointer" onClick={() => toggleSection('labs')}>
+                <h3 className="font-bold text-black text-[12px] uppercase tracking-wider flex items-center gap-2"><Microscope size={18} className="text-indigo-600"/> Evolução Laboratorial</h3>
+                {collapsedSections['labs'] ? <ChevronDown size={18}/> : <ChevronUp size={18}/>}
+              </div>
+              {!collapsedSections['labs'] && (
+                <div className="p-2 overflow-x-auto">
+                  <LabResultTable logs={selectedPatient.dailyLogs} onUpdateValue={async (logId, test, val) => {
+                    const log = selectedPatient.dailyLogs.find(l => l.id === logId);
+                    if (log) {
+                      const newLabs = [...log.labs];
+                      const idx = newLabs.findIndex(l => l.testName === test);
+                      if (idx >= 0) newLabs[idx] = { ...newLabs[idx], value: val };
+                      else newLabs.push({ testName: test, value: val, unit: '', referenceRange: '' });
+                      try {
+                        await PatientService.upsertDailyLog(selectedPatient.id, { ...log, labs: newLabs } as any);
+                        await loadPatients();
+                      } catch (err) { alert(`Erro: ${stringifyError(err)}`); }
+                    }
+                  }} />
+                </div>
+              )}
+            </section>
+
+            {/* 4. Prescrição Vigente */}
             <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
               <div className="px-4 py-2 bg-slate-100 border-b flex items-center justify-between cursor-pointer" onClick={() => toggleSection('rx')}>
                 <h3 className="font-bold text-black text-[12px] uppercase tracking-wider flex items-center gap-2"><Pill size={18} className="text-orange-600"/> Prescrição Vigente</h3>
@@ -464,133 +451,49 @@ export default function App() {
               )}
             </section>
 
-            {/* Evolução Laboratorial */}
-            <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="px-4 py-2 bg-slate-100 border-b flex items-center justify-between cursor-pointer" onClick={() => toggleSection('labs')}>
-                <h3 className="font-bold text-black text-[12px] uppercase tracking-wider flex items-center gap-2"><Microscope size={18} className="text-indigo-600"/> Evolução Laboratorial</h3>
-                {collapsedSections['labs'] ? <ChevronDown size={18}/> : <ChevronUp size={18}/>}
-              </div>
-              {!collapsedSections['labs'] && (
-                <div className="p-2 overflow-x-auto">
-                  <LabResultTable logs={selectedPatient.dailyLogs} onUpdateValue={async (logId, test, val) => {
-                    const log = selectedPatient.dailyLogs.find(l => l.id === logId);
-                    if (log) {
-                      const newLabs = [...log.labs];
-                      const idx = newLabs.findIndex(l => l.testName === test);
-                      if (idx >= 0) newLabs[idx] = { ...newLabs[idx], value: val };
-                      else newLabs.push({ testName: test, value: val, unit: '', referenceRange: '' });
-                      try {
-                        await PatientService.upsertDailyLog(selectedPatient.id, { ...log, labs: newLabs } as any);
-                        await loadPatients();
-                      } catch (err) {
-                        alert(`Erro: ${stringifyError(err)}`);
-                      }
-                    }
-                  }} />
-                </div>
-              )}
-            </section>
-
-            {/* Seção UTI (ABA DE PARÂMETROS DE TERAPIA INTENSIVA) */}
+            {/* 5. Parâmetros UTI - Apenas UTI */}
             {selectedPatient.unit === 'UTI' && (
               <section className="bg-slate-50 rounded-xl border border-medical-200 shadow-md overflow-hidden">
                 <div className="px-4 py-3 bg-medical-700 text-white flex items-center justify-between cursor-pointer" onClick={() => toggleSection('icu')}>
-                  <h3 className="font-bold text-[12px] uppercase tracking-widest flex items-center gap-2"><Gauge size={20}/> Parâmetros de Terapia Intensiva</h3>
+                  <h3 className="font-bold text-[12px] uppercase tracking-widest flex items-center gap-2"><Gauge size={20}/> Parâmetros UTI</h3>
                   {collapsedSections['icu'] ? <ChevronDown size={18}/> : <ChevronUp size={18}/>}
                 </div>
                 {!collapsedSections['icu'] && (
                   <div className="p-4 space-y-6">
-                    {/* Fluid Balance Total */}
-                    <div className="bg-white p-4 rounded-xl border border-slate-200 flex items-center justify-between shadow-sm">
-                      <div className="flex items-center gap-3">
-                        <Droplets className="text-blue-500" size={24}/>
-                        <div>
-                          <p className="text-[10px] font-bold text-slate-500 uppercase">Balanço Hídrico Acumulado</p>
-                          <p className={`text-xl font-black ${totalFluidBalance > 0 ? 'text-blue-600' : totalFluidBalance < 0 ? 'text-red-600' : 'text-slate-700'}`}>
-                            {totalFluidBalance > 0 ? '+' : ''}{totalFluidBalance} ml
-                          </p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase">Dias Registrados</p>
-                        <p className="text-base font-bold text-slate-800">{selectedPatient.dailyLogs.filter(l => l.fluidBalance).length}</p>
-                      </div>
-                    </div>
-
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                      {/* Drogas Vasoativas & Sedação Inteligente */}
+                      {/* Drogas Vasoativas */}
                       <div className="space-y-4">
                         <h4 className="text-[11px] font-bold text-medical-800 uppercase flex items-center gap-2 border-b border-medical-100 pb-1"><Calculator size={16}/> Drogas Vasoativas & Sedação</h4>
-                        
                         <div className="flex flex-wrap gap-1.5 mb-3">
                           {DRUG_PRESETS.map(preset => (
-                            <button 
-                              key={preset.id} 
-                              onClick={() => handleDrugPresetClick(preset)}
-                              className={`px-3 py-1.5 rounded-full text-[10px] font-bold uppercase transition-all border ${doseCalc.drug === preset.name ? 'bg-medical-600 text-white border-medical-700 shadow-sm' : 'bg-white text-medical-700 border-medical-200 hover:bg-medical-50'}`}
-                            >
-                              {preset.name}
-                            </button>
+                            <button key={preset.id} onClick={() => handleDrugPresetClick(preset)} className={`px-3 py-1.5 rounded-full text-[10px] font-bold uppercase transition-all border ${doseCalc.drug === preset.name ? 'bg-medical-600 text-white border-medical-700 shadow-sm' : 'bg-white text-medical-700 border-medical-200 hover:bg-medical-50'}`}>{preset.name}</button>
                           ))}
                         </div>
-
                         <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-4 shadow-sm">
                            <div className="grid grid-cols-2 gap-3">
-                              <div className="col-span-2">
-                                <label className="text-[9px] font-bold text-slate-500 uppercase">Nome da Droga</label>
-                                <input placeholder="Nome ou selecione acima..." className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-lg p-2 text-sm text-black outline-none focus:border-medical-500" value={doseCalc.drug} onChange={e => setDoseCalc({...doseCalc, drug: e.target.value})}/>
-                              </div>
-                              <div>
-                                <label className="text-[9px] font-bold text-slate-500 uppercase">Massa ({doseCalc.unit})</label>
-                                <input type="number" className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-lg p-2 text-sm text-black" value={doseCalc.mg} onChange={e => setDoseCalc({...doseCalc, mg: e.target.value})}/>
-                              </div>
-                              <div>
-                                <label className="text-[9px] font-bold text-slate-500 uppercase">Volume Solução (ml)</label>
-                                <input type="number" className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-lg p-2 text-sm text-black" value={doseCalc.ml} onChange={e => setDoseCalc({...doseCalc, ml: e.target.value})}/>
-                              </div>
-                              <div>
-                                <label className="text-[9px] font-bold text-slate-500 uppercase">Vazão (ml/h)</label>
-                                <input type="number" className="w-full mt-1 border-2 border-medical-200 rounded-lg p-2 text-sm text-black font-bold focus:border-medical-500 outline-none" value={doseCalc.rate} onChange={e => setDoseCalc({...doseCalc, rate: e.target.value})}/>
-                              </div>
-                              <div className="flex flex-col justify-end">
-                                <button onClick={calculateDose} className="w-full bg-medical-700 text-white p-2 rounded-lg text-[11px] font-bold uppercase shadow-sm flex items-center justify-center gap-2"><FlaskConical size={14}/> Calcular</button>
-                              </div>
+                              <div className="col-span-2"><label className="text-[9px] font-bold text-slate-500 uppercase">Nome da Droga</label><input placeholder="Nome ou selecione..." className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-lg p-2 text-sm text-black" value={doseCalc.drug} onChange={e => setDoseCalc({...doseCalc, drug: e.target.value})}/></div>
+                              <div><label className="text-[9px] font-bold text-slate-500 uppercase">Massa ({doseCalc.unit})</label><input type="number" className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-lg p-2 text-sm text-black" value={doseCalc.mg} onChange={e => setDoseCalc({...doseCalc, mg: e.target.value})}/></div>
+                              <div><label className="text-[9px] font-bold text-slate-500 uppercase">Volume (ml)</label><input type="number" className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-lg p-2 text-sm text-black" value={doseCalc.ml} onChange={e => setDoseCalc({...doseCalc, ml: e.target.value})}/></div>
+                              <div><label className="text-[9px] font-bold text-slate-500 uppercase">Vazão (ml/h)</label><input type="number" className="w-full mt-1 border-2 border-medical-200 rounded-lg p-2 text-sm text-black font-bold focus:border-medical-500 outline-none" value={doseCalc.rate} onChange={e => setDoseCalc({...doseCalc, rate: e.target.value})}/></div>
+                              <div className="flex flex-col justify-end"><button onClick={calculateDose} className="w-full bg-medical-700 text-white p-2 rounded-lg text-[11px] font-bold uppercase shadow-sm flex items-center justify-center gap-2"><FlaskConical size={14}/> Calcular</button></div>
                            </div>
-
                            {doseCalc.result && (
                              <div className="bg-medical-50 p-3 rounded-lg border border-medical-200 flex items-center justify-between">
-                               <div>
-                                  <p className="text-[9px] font-bold text-medical-800 uppercase">Dose Calculada:</p>
-                                  <p className="text-lg font-black text-medical-900">{doseCalc.result} <span className="text-xs font-bold">{doseCalc.calcType}</span></p>
-                               </div>
-                               <button onClick={addDoseToText} className="bg-white text-medical-700 border border-medical-300 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase hover:bg-medical-600 hover:text-white transition-all">Inserir na Lista</button>
+                               <div><p className="text-[9px] font-bold text-medical-800 uppercase">Dose Calculada:</p><p className="text-lg font-black text-medical-900">{doseCalc.result} <span className="text-xs font-bold">{doseCalc.calcType}</span></p></div>
+                               <button onClick={addDoseToText} className="bg-white text-medical-700 border border-medical-300 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase hover:bg-medical-600 hover:text-white transition-all">Inserir</button>
                              </div>
                            )}
                         </div>
-
-                        <div>
-                          <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Infusões em Curso (Lista Completa)</label>
-                          <textarea 
-                            className="w-full bg-white border border-slate-200 rounded-lg p-3 text-sm font-mono focus:border-medical-500 outline-none text-black leading-relaxed"
-                            rows={4}
-                            placeholder="A lista de infusões aparecerá aqui..."
-                            value={safeString(selectedPatient.vasoactiveDrugs)}
-                            onChange={e => updateICUParams({ vasoactiveDrugs: e.target.value })}
-                          />
-                        </div>
+                        <textarea className="w-full bg-white border border-slate-200 rounded-lg p-3 text-sm font-mono focus:border-medical-500 outline-none text-black leading-relaxed" rows={3} value={safeString(selectedPatient.vasoactiveDrugs)} onChange={e => updateICUParams({ vasoactiveDrugs: e.target.value })} />
                       </div>
 
-                      {/* Suporte Ventilatório Robusto */}
+                      {/* Suporte Ventilatório */}
                       <div className="space-y-4">
                         <h4 className="text-[11px] font-bold text-blue-800 uppercase flex items-center gap-2 border-b border-blue-100 pb-1"><Wind size={16}/> Suporte Ventilatório</h4>
                         <div className="grid grid-cols-2 gap-3">
                           <div className="col-span-2">
                             <label className="text-[10px] font-bold text-slate-500 uppercase">Modo Principal</label>
-                            <select 
-                              className="w-full mt-1 bg-white border-2 border-blue-100 rounded-lg p-2.5 text-sm text-black font-bold shadow-sm focus:border-blue-500 outline-none transition-all"
-                              value={selectedPatient.ventilation?.mode || 'Espontânea'}
-                              onChange={e => handleVentilationModeChange(e.target.value as any)}
-                            >
+                            <select className="w-full mt-1 bg-white border-2 border-blue-200 rounded-lg p-2.5 text-sm text-black font-black shadow-sm focus:border-blue-600 outline-none transition-all cursor-pointer" value={selectedPatient.ventilation?.mode || 'Espontânea'} onChange={e => handleVentilationModeChange(e.target.value as any)}>
                               <option value="Espontânea">Espontânea (AA)</option>
                               <option value="Cateter/CNAF">Cateter O2 / CNAF</option>
                               <option value="VNI">VNI (Máscara)</option>
@@ -598,108 +501,50 @@ export default function App() {
                             </select>
                           </div>
 
-                          {/* Campos específicos por modo */}
+                          {/* Modo VM (Invasiva) com campo Pressão */}
+                          {selectedPatient.ventilation?.mode === 'VM' && (
+                            <>
+                              <div className="col-span-2"><label className="text-[10px] font-bold text-slate-500 uppercase">Sub-modo (VCV, PCV, PSV)</label><input type="text" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm uppercase text-black font-black" value={selectedPatient.ventilation?.subMode || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, subMode: e.target.value } as Ventilation })} placeholder="EX: PCV"/></div>
+                              <div><label className="text-[10px] font-bold text-slate-500 uppercase">FiO2 (%)</label><input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.fio2 || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, fio2: e.target.value } as Ventilation })}/></div>
+                              <div><label className="text-[10px] font-bold text-slate-500 uppercase">PEEP</label><input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.peep || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, peep: e.target.value } as Ventilation })}/></div>
+                              <div><label className="text-[10px] font-bold text-slate-500 uppercase">FR V.</label><input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.rate || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, rate: e.target.value } as Ventilation })}/></div>
+                              <div><label className="text-[10px] font-bold text-slate-500 uppercase">Volume (ml)</label><input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.volume || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, volume: e.target.value } as Ventilation })}/></div>
+                              <div className="col-span-2">
+                                <label className="text-[10px] font-bold text-slate-500 uppercase">Pressão (P. Insp / P. Suporte)</label>
+                                <input type="number" className="w-full mt-1 bg-white border-2 border-medical-100 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.pressure || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, pressure: e.target.value } as Ventilation })}/>
+                              </div>
+                              <div className="col-span-2 pt-2">
+                                <div className="bg-indigo-50 border border-indigo-200 p-2.5 rounded-xl shadow-sm flex items-center justify-between">
+                                  <div>
+                                    <p className="text-[9px] font-bold text-indigo-800 uppercase flex items-center gap-1"><Activity size={12}/> Relação P/F (Calculada)</p>
+                                    <p className={`text-lg font-black ${calculateRespIndices().pf && parseFloat(calculateRespIndices().pf!) > 300 ? 'text-green-600' : parseFloat(calculateRespIndices().pf!) > 200 ? 'text-orange-500' : 'text-red-600'}`}>
+                                      {calculateRespIndices().pf || '---'}
+                                    </p>
+                                  </div>
+                                  <div className="text-[10px] text-slate-500 font-medium italic text-right leading-tight">Baseado na última pO2 registrada<br/>na Evolução Laboratorial</div>
+                                </div>
+                              </div>
+                            </>
+                          )}
+
                           {selectedPatient.ventilation?.mode === 'Cateter/CNAF' && (
                             <>
-                              <div className="col-span-1">
-                                <label className="text-[10px] font-bold text-slate-500 uppercase">FiO2 (%)</label>
-                                <input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.fio2 || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, fio2: e.target.value } as Ventilation })}/>
-                              </div>
-                              <div className="col-span-1">
-                                <label className="text-[10px] font-bold text-slate-500 uppercase">Fluxo (L/min)</label>
-                                <input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.flow || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, flow: e.target.value } as Ventilation })}/>
-                              </div>
-                              {/* Cálculo ROX Index e Relação P/F */}
+                              <div className="col-span-1"><label className="text-[10px] font-bold text-slate-500 uppercase">FiO2 (%)</label><input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.fio2 || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, fio2: e.target.value } as Ventilation })}/></div>
+                              <div className="col-span-1"><label className="text-[10px] font-bold text-slate-500 uppercase">Fluxo (L/min)</label><input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.flow || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, flow: e.target.value } as Ventilation })}/></div>
                               <div className="col-span-2 grid grid-cols-2 gap-2 mt-2">
-                                 <div className="bg-blue-50 border border-blue-200 p-2.5 rounded-xl shadow-sm">
-                                   <p className="text-[9px] font-bold text-blue-800 uppercase flex items-center gap-1"><AlertCircle size={12}/> Índice de ROX</p>
-                                   <p className={`text-lg font-black ${calculateRespIndices().rox && parseFloat(calculateRespIndices().rox!) > 4.88 ? 'text-green-600' : 'text-red-600'}`}>
-                                     {calculateRespIndices().rox || '---'}
-                                   </p>
-                                 </div>
-                                 <div className="bg-indigo-50 border border-indigo-200 p-2.5 rounded-xl shadow-sm">
-                                   <p className="text-[9px] font-bold text-indigo-800 uppercase flex items-center gap-1"><Activity size={12}/> Relação P/F</p>
-                                   <p className={`text-lg font-black ${calculateRespIndices().pf && parseFloat(calculateRespIndices().pf!) > 300 ? 'text-green-600' : parseFloat(calculateRespIndices().pf!) > 200 ? 'text-orange-500' : 'text-red-600'}`}>
-                                     {calculateRespIndices().pf || '---'}
-                                   </p>
-                                 </div>
+                                 <div className="bg-blue-50 border border-blue-200 p-2.5 rounded-xl shadow-sm"><p className="text-[9px] font-bold text-blue-800 uppercase flex items-center gap-1"><AlertCircle size={12}/> Índice de ROX</p><p className={`text-lg font-black ${calculateRespIndices().rox && parseFloat(calculateRespIndices().rox!) > 4.88 ? 'text-green-600' : 'text-red-600'}`}>{calculateRespIndices().rox || '---'}</p></div>
+                                 <div className="bg-indigo-50 border border-indigo-200 p-2.5 rounded-xl shadow-sm"><p className="text-[9px] font-bold text-indigo-800 uppercase flex items-center gap-1"><Activity size={12}/> Relação P/F</p><p className={`text-lg font-black ${calculateRespIndices().pf && parseFloat(calculateRespIndices().pf!) > 300 ? 'text-green-600' : 'text-red-600'}`}>{calculateRespIndices().pf || '---'}</p></div>
                               </div>
                             </>
                           )}
 
                           {selectedPatient.ventilation?.mode === 'VNI' && (
                             <>
-                              <div className="col-span-2">
-                                <label className="text-[10px] font-bold text-slate-500 uppercase">FiO2 (%)</label>
-                                <input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.fio2 || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, fio2: e.target.value } as Ventilation })}/>
-                              </div>
-                              <div>
-                                <label className="text-[10px] font-bold text-slate-500 uppercase">EPAP (PEEP)</label>
-                                <input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.peep || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, peep: e.target.value } as Ventilation })}/>
-                              </div>
-                              <div>
-                                <label className="text-[10px] font-bold text-slate-500 uppercase">IPAP (Pressão)</label>
-                                <input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.pressure || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, pressure: e.target.value } as Ventilation })}/>
-                              </div>
+                              <div className="col-span-2"><label className="text-[10px] font-bold text-slate-500 uppercase">FiO2 (%)</label><input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.fio2 || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, fio2: e.target.value } as Ventilation })}/></div>
+                              <div><label className="text-[10px] font-bold text-slate-500 uppercase">EPAP (PEEP)</label><input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.peep || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, peep: e.target.value } as Ventilation })}/></div>
+                              <div><label className="text-[10px] font-bold text-slate-500 uppercase">IPAP (Pressão)</label><input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.pressure || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, pressure: e.target.value } as Ventilation })}/></div>
                             </>
                           )}
-
-                          {selectedPatient.ventilation?.mode === 'VM' && (
-                            <>
-                              <div className="col-span-2">
-                                <label className="text-[10px] font-bold text-slate-500 uppercase">Modo Específico (Ex: VCV, PCV, SIMV)</label>
-                                <input type="text" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm uppercase text-black font-black" value={selectedPatient.ventilation?.subMode || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, subMode: e.target.value } as Ventilation })} placeholder="VCV / PCV / PSV..."/>
-                              </div>
-                              <div>
-                                <label className="text-[10px] font-bold text-slate-500 uppercase">FiO2 (%)</label>
-                                <input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.fio2 || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, fio2: e.target.value } as Ventilation })}/>
-                              </div>
-                              <div>
-                                <label className="text-[10px] font-bold text-slate-500 uppercase">PEEP</label>
-                                <input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.peep || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, peep: e.target.value } as Ventilation })}/>
-                              </div>
-                              <div>
-                                <label className="text-[10px] font-bold text-slate-500 uppercase">FR V. (Freq. Ventilador)</label>
-                                <input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.rate || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, rate: e.target.value } as Ventilation })}/>
-                              </div>
-                              <div>
-                                <label className="text-[10px] font-bold text-slate-500 uppercase">Volume (ml)</label>
-                                <input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.volume || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, volume: e.target.value } as Ventilation })}/>
-                              </div>
-                              <div className="col-span-2">
-                                <label className="text-[10px] font-bold text-slate-500 uppercase">P. Pico / Platô / Insp</label>
-                                <input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.pressure || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, pressure: e.target.value } as Ventilation })}/>
-                              </div>
-                              {/* Relação P/F em VM */}
-                              <div className="col-span-2 bg-indigo-50 border border-indigo-200 p-2.5 rounded-xl shadow-sm mt-1">
-                                 <p className="text-[9px] font-bold text-indigo-800 uppercase flex items-center gap-1"><Activity size={12}/> Relação P/F (Calculada)</p>
-                                 <p className={`text-xl font-black ${calculateRespIndices().pf && parseFloat(calculateRespIndices().pf!) > 300 ? 'text-green-600' : parseFloat(calculateRespIndices().pf!) > 200 ? 'text-orange-500' : 'text-red-600'}`}>
-                                   {calculateRespIndices().pf || '---'}
-                                 </p>
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Dispositivos & Invasões */}
-                      <div className="col-span-1 lg:col-span-2 space-y-3">
-                        <h4 className="text-[11px] font-bold text-orange-800 uppercase flex items-center gap-2 border-b border-orange-100 pb-1"><Calendar size={16}/> Dispositivos & Invasões</h4>
-                        <div className="flex gap-2">
-                          <input placeholder="Ex: Cateter Venoso Central" className="flex-1 bg-white border rounded-lg p-2 text-sm text-black" value={newDeviceName} onChange={e => setNewDeviceName(e.target.value)}/>
-                          <input type="date" className="bg-white border rounded-lg p-2 text-sm text-black" value={newDeviceDate} onChange={e => setNewDeviceDate(e.target.value)}/>
-                          <button onClick={() => { updatePatientList('devices_list', { id: Date.now().toString(), name: newDeviceName, insertionDate: newDeviceDate }, 'add'); setNewDeviceName(''); }} className="bg-orange-600 text-white px-4 py-2 rounded-lg font-bold text-[11px] uppercase shadow-sm">Adicionar</button>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                          {selectedPatient.devices_list?.map((dev, i) => (
-                            <div key={dev.id} className="bg-white p-2 border border-orange-100 rounded-lg flex items-center justify-between shadow-sm">
-                              <div>
-                                <p className="text-[11px] font-bold text-slate-800">{safeString(dev.name)}</p>
-                                <p className="text-[9px] text-slate-500 font-bold uppercase">Inserção: {new Date(dev.insertionDate).toLocaleDateString('pt-BR')}</p>
-                              </div>
-                              <button onClick={() => updatePatientList('devices_list', null, 'remove', i)} className="text-slate-300 hover:text-red-600"><X size={16}/></button>
-                            </div>
-                          ))}
                         </div>
                       </div>
                     </div>
@@ -707,8 +552,55 @@ export default function App() {
                 )}
               </section>
             )}
+
+            {/* 6. Invasões e Dispositivos (Movido para baixo da UTI conforme solicitado) */}
+            <section className="bg-white rounded-xl border border-orange-200 shadow-sm overflow-hidden">
+              <div className="px-4 py-2 bg-orange-50 border-b flex items-center justify-between cursor-pointer" onClick={() => toggleSection('devices')}>
+                <h3 className="font-bold text-black text-[12px] uppercase tracking-wider flex items-center gap-2"><Calendar size={18} className="text-orange-600"/> Invasões e Dispositivos</h3>
+                {collapsedSections['devices'] ? <ChevronDown size={18}/> : <ChevronUp size={18}/>}
+              </div>
+              {!collapsedSections['devices'] && (
+                <div className="p-4 space-y-4">
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex flex-col md:flex-row gap-2">
+                    <input placeholder="Ex: Cateter Venoso Central" className="flex-1 bg-white border rounded-lg p-2 text-sm text-black uppercase" value={newDeviceName} onChange={e => setNewDeviceName(e.target.value)}/>
+                    <input type="date" className="bg-white border rounded-lg p-2 text-sm text-black" value={newDeviceDate} onChange={e => setNewDeviceDate(e.target.value)}/>
+                    <button onClick={() => { if (!newDeviceName) return; const newDev = { id: Date.now().toString(), name: newDeviceName, insertionDate: newDeviceDate }; updatePatientList('devices_list', newDev, 'add'); setNewDeviceName(''); }} className="bg-orange-600 text-white px-6 py-2 rounded-lg font-bold text-[11px] uppercase shadow-md flex items-center justify-center gap-2"><PlusCircle size={16}/> Adicionar</button>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {selectedPatient.devices_list && selectedPatient.devices_list.length > 0 ? (
+                      selectedPatient.devices_list.map((dev, i) => (
+                        <div key={dev.id} className="bg-white p-3 border border-slate-200 rounded-xl flex items-center justify-between group transition-all hover:border-orange-400 shadow-sm">
+                          {editingDeviceId === dev.id ? (
+                            <div className="flex-1 flex flex-col gap-1.5">
+                              <input className="w-full bg-slate-50 border border-orange-200 px-2 py-1 rounded text-[11px] font-bold text-black uppercase" value={dev.name} onChange={e => updatePatientList('devices_list', {...dev, name: e.target.value}, 'edit', i)}/>
+                              <div className="flex gap-1">
+                                <input type="date" className="flex-1 bg-slate-50 border border-orange-200 px-2 py-1 rounded text-[10px] text-black" value={dev.insertionDate} onChange={e => updatePatientList('devices_list', {...dev, insertionDate: e.target.value}, 'edit', i)}/>
+                                <button onClick={() => setEditingDeviceId(null)} className="bg-orange-600 text-white p-1 rounded"><Check size={14}/></button>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-[12px] font-bold text-slate-800 truncate uppercase">{safeString(dev.name)}</p>
+                                <p className="text-[10px] text-slate-500 font-bold uppercase">Desde: {new Date(dev.insertionDate).toLocaleDateString('pt-BR')}</p>
+                              </div>
+                              <div className="flex items-center gap-1 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button onClick={() => setEditingDeviceId(dev.id)} className="p-1.5 text-slate-400 hover:text-medical-600"><Pencil size={14}/></button>
+                                <button onClick={() => updatePatientList('devices_list', null, 'remove', i)} className="p-1.5 text-slate-400 hover:text-red-600"><Trash2 size={14}/></button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      ))
+                    ) : (
+                      <div className="col-span-full text-center py-6 border border-dashed border-slate-300 rounded-xl text-slate-400 text-[11px] uppercase tracking-widest">Nenhum dispositivo registrado</div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </section>
             
-            {/* Histórico */}
+            {/* 7. Histórico de Evoluções */}
             <section className="space-y-3">
               <h3 className="text-[12px] font-bold text-slate-700 uppercase flex items-center gap-2 ml-1 tracking-[0.2em]"><History size={20} className="text-medical-600"/> Histórico de Evoluções</h3>
               {[...selectedPatient.dailyLogs].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(log => (
@@ -725,35 +617,16 @@ export default function App() {
                     </div>
                   </div>
                   {!collapsedLogs[log.id] && (
-                    <div className="p-4 space-y-4 animate-in fade-in slide-in-from-top-1 duration-200">
-                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-                        <div className="bg-slate-50 p-2 rounded-lg border border-slate-100 text-center">
-                           <div className="text-[9px] text-slate-400 font-bold uppercase mb-0.5">Temp</div>
-                           <div className="font-bold text-black text-xs">{safeString(log.vitalSigns.temperature)}°C</div>
-                        </div>
-                        <div className="bg-slate-50 p-2 rounded-lg border border-slate-100 text-center">
-                           <div className="text-[9px] text-slate-400 font-bold uppercase mb-0.5">FC</div>
-                           <div className="font-bold text-black text-xs">{safeString(log.vitalSigns.heartRate)} bpm</div>
-                        </div>
-                        <div className="bg-slate-50 p-2 rounded-lg border border-slate-100 text-center">
-                           <div className="text-[9px] text-slate-400 font-bold uppercase mb-0.5">FR</div>
-                           <div className="font-bold text-black text-xs">{safeString(log.vitalSigns.respiratoryRate)} irpm</div>
-                        </div>
-                        <div className="bg-slate-50 p-2 rounded-lg border border-slate-100 text-center">
-                           <div className="text-[9px] text-slate-400 font-bold uppercase mb-0.5">PA</div>
-                           <div className="font-bold text-black text-xs">{safeString(log.vitalSigns.bloodPressureSys)}/{safeString(log.vitalSigns.bloodPressureDia)}</div>
-                        </div>
-                        <div className="bg-slate-50 p-2 rounded-lg border border-slate-100 text-center">
-                           <div className="text-[9px] text-slate-400 font-bold uppercase mb-0.5">SatO2</div>
-                           <div className="font-bold text-black text-xs">{safeString(log.vitalSigns.oxygenSaturation)}%</div>
-                        </div>
-                        <div className="bg-slate-50 p-2 rounded-lg border border-slate-100 text-center">
-                           <div className="text-[9px] text-slate-400 font-bold uppercase mb-0.5">Dextro</div>
-                           <div className="font-bold text-black text-xs">{safeString(log.vitalSigns.capillaryBloodGlucose) || '-'}</div>
-                        </div>
+                    <div className="p-4 animate-in fade-in slide-in-from-top-1 duration-200">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
+                        {['temperature', 'heartRate', 'respiratoryRate', 'bloodPressureSys', 'oxygenSaturation', 'capillaryBloodGlucose'].map(v => (
+                          <div key={v} className="bg-slate-50 p-2 rounded-lg border border-slate-100 text-center">
+                            <div className="text-[9px] text-slate-400 font-bold uppercase mb-0.5">{v.substring(0,4)}</div>
+                            <div className="font-bold text-black text-xs">{(log.vitalSigns as any)[v] || '-'}</div>
+                          </div>
+                        ))}
                       </div>
                       <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 shadow-inner">
-                         <h4 className="text-[10px] font-bold text-slate-400 uppercase mb-2 tracking-[0.2em]">Nota Clínica:</h4>
                          <p className="text-sm text-black whitespace-pre-wrap leading-relaxed">{safeString(log.notes) || 'Sem registro.'}</p>
                       </div>
                     </div>
@@ -769,19 +642,19 @@ export default function App() {
           </div>
         )}
 
-        {/* Modais */}
+        {/* Modais omitidos para brevidade, mas funcionais */}
         {showAddPatientModal && (
           <div className="fixed inset-0 bg-slate-900/80 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-200">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-200 text-black">
               <div className="bg-slate-800 p-4 text-white flex justify-between items-center"><h3 className="font-bold text-sm uppercase tracking-wider">{editingPatientId ? 'Editar' : 'Novo'} Cadastro</h3><button onClick={() => setShowAddPatientModal(false)} className="p-1"><X size={28}/></button></div>
               <form onSubmit={handleSavePatient} className="p-6 space-y-5">
                 <div className="space-y-1.5"><label className="text-xs font-bold text-slate-600 uppercase">Nome Completo</label><input required className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-base outline-none text-black uppercase" value={newPatientData.name} onChange={e => setNewPatientData({...newPatientData, name: e.target.value})} /></div>
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1.5"><label className="text-xs font-bold text-slate-600 uppercase">Leito</label><input required className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-base text-black" value={newPatientData.bedNumber} onChange={e => setNewPatientData({...newPatientData, bedNumber: e.target.value})} /></div>
+                  <div className="space-y-1.5"><label className="text-xs font-bold text-slate-600 uppercase">Leito</label><input required className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-base text-black font-bold uppercase" value={newPatientData.bedNumber} onChange={e => setNewPatientData({...newPatientData, bedNumber: e.target.value})} /></div>
                   <div className="space-y-1.5"><label className="text-xs font-bold text-slate-600 uppercase">Idade</label><input required type="number" className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-base text-black" value={newPatientData.age || ''} onChange={e => setNewPatientData({...newPatientData, age: parseInt(e.target.value) || 0})} /></div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1.5"><label className="text-xs font-bold text-slate-600 uppercase">Unidade</label><select className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-base text-black" value={newPatientData.unit} onChange={e => setNewPatientData({...newPatientData, unit: e.target.value as any})}><option value="UTI">UTI</option><option value="Enfermaria">Enfermaria</option></select></div>
+                  <div className="space-y-1.5"><label className="text-xs font-bold text-slate-600 uppercase">Unidade</label><select className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-base text-black font-bold" value={newPatientData.unit} onChange={e => setNewPatientData({...newPatientData, unit: e.target.value as any})}><option value="UTI">UTI</option><option value="Enfermaria">Enfermaria</option></select></div>
                   <div className="space-y-1.5"><label className="text-xs font-bold text-slate-600 uppercase">Peso Est. (kg)</label><input type="number" step="0.1" className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-base text-black" value={newPatientData.estimatedWeight || ''} onChange={e => setNewPatientData({...newPatientData, estimatedWeight: parseFloat(e.target.value) || 0})} /></div>
                 </div>
                 <button type="submit" className="w-full bg-medical-600 text-white p-4 rounded-xl font-bold text-base uppercase shadow-lg">Salvar Cadastro</button>
@@ -792,7 +665,7 @@ export default function App() {
 
         {showAddLogModal && (
           <div className="fixed inset-0 bg-slate-900/80 z-[100] flex items-center justify-center p-2 backdrop-blur-sm">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[96vh] overflow-hidden flex flex-col border border-slate-200">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[96vh] overflow-hidden flex flex-col border border-slate-200 text-black">
               <div className="bg-slate-900 p-3 text-white flex justify-between items-center"><h3 className="font-bold text-sm uppercase flex items-center gap-3 px-4 tracking-widest"><ClipboardList size={24} className="text-medical-500"/> Registro Clínico Diário</h3><button onClick={() => setShowAddLogModal(false)} className="p-2 rounded-xl transition-colors"><X size={32}/></button></div>
               <div className="p-6 overflow-y-auto bg-white"><DailyLogForm initialData={editingLog || undefined} initialPrescriptions={selectedPatient?.medicalPrescription?.split('\n').filter(p => p.trim())} onSave={handleSaveLog} onCancel={() => setShowAddLogModal(false)} patientUnit={selectedPatient?.unit} /></div>
             </div>
@@ -801,22 +674,14 @@ export default function App() {
 
         {showTransferModal && selectedPatient && (
           <div className="fixed inset-0 bg-slate-900/80 z-[100] flex items-center justify-center p-4 backdrop-blur-md">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xs p-6 space-y-5 text-center">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xs p-6 space-y-5 text-center text-black">
               <h3 className="font-bold text-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 mb-4"><ArrowRightLeft size={20} className="text-medical-600"/> Mudar Setor / Status</h3>
               <div className="grid gap-2.5">
                 {['UTI', 'Enfermaria', 'Finalizados', 'Arquivo Morto'].map(t => (
                   <button key={t} onClick={() => setTransferTarget(t)} className={`p-3 border-2 rounded-xl text-center text-sm font-bold transition-all ${transferTarget === t ? 'border-medical-600 bg-medical-50 text-medical-800 shadow-md' : 'border-slate-100 text-slate-500'}`}>{t}</button>
                 ))}
               </div>
-              <button onClick={async () => { 
-                try {
-                  await PatientService.updatePatient(selectedPatientId!, { unit: transferTarget as any }); 
-                  await loadPatients(); 
-                  setShowTransferModal(false); 
-                } catch (err) {
-                  alert(`Erro na transferência: ${stringifyError(err)}`);
-                }
-              }} className="w-full bg-medical-600 text-white p-4 rounded-xl font-bold uppercase shadow-lg">Confirmar</button>
+              <button onClick={async () => { try { await PatientService.updatePatient(selectedPatientId!, { unit: transferTarget as any }); await loadPatients(); setShowTransferModal(false); } catch (err) { alert(`Erro: ${stringifyError(err)}`); } }} className="w-full bg-medical-600 text-white p-4 rounded-xl font-bold uppercase shadow-lg">Confirmar</button>
             </div>
           </div>
         )}
