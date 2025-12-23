@@ -3,23 +3,19 @@ import { supabase } from '../lib/supabase';
 import { Patient, DailyLog, Attachment, Device } from '../types';
 
 /**
- * Extrai uma mensagem de erro legível de quase qualquer objeto de erro.
- * Resolve o problema do [object Object] nos alertas.
+ * Extrai uma mensagem de erro legível e detalhada.
  */
 const getErrorMessage = (error: any): string => {
   if (!error) return 'Erro desconhecido';
   if (typeof error === 'string') return error;
   
-  // Erros do Supabase/Postgrest costumam ter message, details ou hint
-  if (error.message) {
-    let msg = error.message;
-    if (error.details) msg += ` (Detalhes: ${error.details})`;
-    if (error.hint) msg += ` (Dica: ${error.hint})`;
-    return msg;
-  }
+  const message = error.message || error.error_description || (error.error && error.error.message);
+  const details = error.details || '';
+  const hint = error.hint || '';
   
-  if (error.error_description) return error.error_description;
-  if (error.error && typeof error.error === 'object') return getErrorMessage(error.error);
+  if (message) {
+    return `${message}${details ? ` (${details})` : ''}${hint ? ` - Dica: ${hint}` : ''}`;
+  }
 
   try {
     return JSON.stringify(error);
@@ -90,28 +86,27 @@ export const fetchPatients = async (): Promise<Patient[]> => {
 };
 
 /**
- * Cria um paciente com suporte a fallback caso colunas novas não existam no banco.
+ * createPatient Inteligente: Tenta inserir o objeto completo. 
+ * Se uma coluna não for encontrada, ele a remove e tenta novamente.
  */
-export const createPatient = async (patientData: Omit<Patient, 'id' | 'dailyLogs' | 'attachments'>): Promise<Patient | null> => {
-  // 1. Definir colunas básicas (que provavelmente existem em qualquer versão da tabela)
-  const corePayload = {
+export const createPatient = async (
+  patientData: Omit<Patient, 'id' | 'dailyLogs' | 'attachments'>,
+  attemptPayload: any = null
+): Promise<Patient | null> => {
+  
+  const payload = attemptPayload || {
     name: String(patientData.name || 'Novo Paciente').toUpperCase(),
     age: Number(patientData.age) || 0,
     gender: patientData.gender || 'Masculino',
+    estimated_weight: Number(patientData.estimatedWeight) || 0,
     bed_number: String(patientData.bedNumber || '?').toUpperCase(),
     unit: patientData.unit || 'UTI',
     status: 'active',
     admission_date: patientData.admissionDate || new Date().toISOString().split('T')[0],
-    estimated_weight: Number(patientData.estimatedWeight) || 0,
     admission_history: patientData.admissionHistory || '',
-    medical_prescription: patientData.medicalPrescription || '',
-  };
-
-  // 2. Definir colunas estendidas (novas colunas de UTI/Estruturadas)
-  const extendedPayload = {
-    ...corePayload,
     personal_history: Array.isArray(patientData.personalHistory) ? patientData.personalHistory : [],
     home_medications: Array.isArray(patientData.homeMedications) ? patientData.homeMedications : [],
+    medical_prescription: patientData.medicalPrescription || '',
     diagnostic_hypotheses: Array.isArray(patientData.diagnosticHypotheses) ? patientData.diagnosticHypotheses : [],
     vasoactive_drugs: patientData.vasoactiveDrugs || '',
     sedation_analgesia: patientData.sedationAnalgesia || '',
@@ -120,32 +115,35 @@ export const createPatient = async (patientData: Omit<Patient, 'id' | 'dailyLogs
   };
 
   try {
-    console.log('Tentando inserção completa...');
-    const { data, error } = await supabase.from('patients').insert(extendedPayload).select().single();
+    const { data, error } = await supabase.from('patients').insert(payload).select().single();
 
     if (error) {
-      // Se o erro for de coluna inexistente, tenta o payload básico
-      if (error.message?.includes('column') && error.message?.includes('not found')) {
-        console.warn('Detectado erro de esquema. Tentando inserção simplificada...', error.message);
-        const { data: retryData, error: retryError } = await supabase.from('patients').insert(corePayload).select().single();
-        
-        if (retryError) throw retryError;
-        return { ...mapPatientFromDB(retryData), dailyLogs: [], attachments: [] };
+      if (error.message?.includes('column') || error.message?.includes('not found')) {
+        const match = error.message.match(/'([^']+)'/);
+        const missingColumn = match ? match[1] : null;
+
+        if (missingColumn && payload[missingColumn] !== undefined) {
+          const newPayload = { ...payload };
+          delete newPayload[missingColumn];
+          return createPatient(patientData, newPayload);
+        }
       }
       throw error;
     }
     
     return { ...mapPatientFromDB(data), dailyLogs: [], attachments: [] };
   } catch (err: any) {
-    const finalMsg = getErrorMessage(err);
-    console.error('%cFalha Crítica na Criação:', 'color: white; background: red; font-weight: bold', finalMsg);
-    throw new Error(finalMsg);
+    throw new Error(getErrorMessage(err));
   }
 };
 
-export const updatePatient = async (patientId: string, updates: Partial<Patient>) => {
-  try {
-    const dbUpdates: any = {};
+/**
+ * updatePatient Inteligente: Tenta atualizar. Se der erro de coluna, remove a coluna problemática e tenta novamente.
+ */
+export const updatePatient = async (patientId: string, updates: Partial<Patient>, attemptPayload: any = null): Promise<void> => {
+  const dbUpdates: any = attemptPayload || {};
+  
+  if (!attemptPayload) {
     if (updates.name !== undefined) dbUpdates.name = updates.name;
     if (updates.age !== undefined) dbUpdates.age = Number(updates.age);
     if (updates.gender !== undefined) dbUpdates.gender = updates.gender;
@@ -163,11 +161,25 @@ export const updatePatient = async (patientId: string, updates: Partial<Patient>
     if (updates.sedationAnalgesia !== undefined) dbUpdates.sedation_analgesia = updates.sedationAnalgesia;
     if (updates.devices_list !== undefined) dbUpdates.devices_list = updates.devices_list;
     if (updates.ventilation !== undefined) dbUpdates.ventilation = updates.ventilation;
+  }
 
+  try {
     const { error } = await supabase.from('patients').update(dbUpdates).eq('id', patientId);
+    
     if (error) {
-       console.error('Update Error:', error);
-       throw error;
+      if (error.message?.includes('column') || error.message?.includes('not found')) {
+        const match = error.message.match(/'([^']+)'/);
+        const missingColumn = match ? match[1] : null;
+        if (missingColumn && dbUpdates[missingColumn] !== undefined) {
+          const newPayload = { ...dbUpdates };
+          delete newPayload[missingColumn];
+          if (Object.keys(newPayload).length > 0) {
+            return updatePatient(patientId, updates, newPayload);
+          }
+          return; // Se não sobrar nada, apenas sai
+        }
+      }
+      throw error;
     }
   } catch (err) {
     throw new Error(getErrorMessage(err));

@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Activity, BrainCircuit, PlusCircle, ChevronDown, ChevronUp, Menu, X, 
   ClipboardList, History, Pencil, Check, ArrowUp, ArrowDown, Trash2, 
-  UserPlus, Printer, ArrowRightLeft, Pill, Microscope, HeartPulse, LogOut, Droplets, Wind, Gauge, Calculator, Calendar
+  UserPlus, Printer, ArrowRightLeft, Pill, Microscope, HeartPulse, LogOut, Droplets, Wind, Gauge, Calculator, Calendar, FlaskConical, AlertCircle, Thermometer
 } from 'lucide-react';
 import { Patient, DailyLog, Device, Ventilation } from './types';
 import DailyLogForm from './components/DailyLogForm';
@@ -17,7 +17,6 @@ const safeString = (val: any): string => {
   return String(val);
 };
 
-// Helper para converter erro para string legível e evitar [object Object]
 const stringifyError = (err: any): string => {
   if (!err) return 'Erro desconhecido';
   if (typeof err === 'string') return err;
@@ -49,6 +48,18 @@ const INITIAL_NEW_PATIENT_STATE: Omit<Patient, 'id' | 'dailyLogs' | 'attachments
   devices_list: [], 
   ventilation: { mode: 'Espontânea', fio2: '21', peep: '0', rate: '0', volume: '0', pressure: '0' }
 };
+
+const DRUG_PRESETS = [
+  { id: 'nora4', name: 'Nora 4 amp', mg: 16, ml: 250, unit: 'mg', calcType: 'mcg/kg/min' },
+  { id: 'nora8', name: 'Nora 8 amp', mg: 32, ml: 250, unit: 'mg', calcType: 'mcg/kg/min' },
+  { id: 'vaso', name: 'Vaso', mg: 20, ml: 100, unit: 'UI', calcType: 'UI/min' },
+  { id: 'dobuta', name: 'Dobuta', mg: 250, ml: 250, unit: 'mg', calcType: 'mcg/kg/min' },
+  { id: 'amioda', name: 'Amioda', mg: 600, ml: 250, unit: 'mg', calcType: 'mcg/kg/min' },
+  { id: 'fenta', name: 'Fenta', mg: 2.5, ml: 250, unit: 'mg', calcType: 'mcg/kg/h' },
+  { id: 'mida', name: 'Mida', mg: 100, ml: 100, unit: 'mg', calcType: 'mcg/kg/h' },
+  { id: 'precedex', name: 'Precedex', mg: 0.2, ml: 100, unit: 'mg', calcType: 'mcg/kg/h' },
+  { id: 'cetamina', name: 'Cetamina', mg: 500, ml: 50, unit: 'mg', calcType: 'mcg/kg/h' },
+];
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -82,10 +93,9 @@ export default function App() {
   const [newHomeMed, setNewHomeMed] = useState('');
   const [transferTarget, setTransferTarget] = useState<string>('UTI');
 
-  // ICU States
   const [newDeviceName, setNewDeviceName] = useState('');
   const [newDeviceDate, setNewDeviceDate] = useState(new Date().toISOString().split('T')[0]);
-  const [doseCalc, setDoseCalc] = useState({ drug: '', mg: '', ml: '', rate: '', result: '' });
+  const [doseCalc, setDoseCalc] = useState({ drug: '', mg: '', ml: '', rate: '', result: '', unit: 'mg', calcType: 'mcg/kg/min' });
 
   useEffect(() => { if (isAuthenticated) loadPatients(); }, [isAuthenticated]);
 
@@ -136,9 +146,7 @@ export default function App() {
       setEditingPatientId(null);
       setNewPatientData(INITIAL_NEW_PATIENT_STATE);
     } catch (err: any) {
-      const errorMsg = stringifyError(err);
-      console.error('Save Patient Error Detail:', err);
-      alert(`Ops! Não foi possível salvar o paciente.\n\nERRO: ${errorMsg}\n\nNota: Se for erro de 'column not found', você precisa adicionar as novas colunas à sua tabela 'patients' no Supabase.`);
+      alert(`Erro: ${stringifyError(err)}`);
     }
   };
 
@@ -166,7 +174,7 @@ export default function App() {
       await PatientService.updatePatient(selectedPatientId, { [field]: newList });
       await loadPatients();
     } catch (err) {
-      alert(`Erro ao atualizar lista: ${stringifyError(err)}`);
+      alert(`Erro: ${stringifyError(err)}`);
     }
   };
 
@@ -176,8 +184,37 @@ export default function App() {
       await PatientService.updatePatient(selectedPatientId, updates); 
       await loadPatients(); 
     } catch (err) { 
-      alert(`Erro ao atualizar parâmetros: ${stringifyError(err)}`); 
+      alert(`Erro: ${stringifyError(err)}`); 
     }
+  };
+
+  const handleVentilationModeChange = async (mode: Ventilation['mode']) => {
+    if (!selectedPatientId || !selectedPatient) return;
+    
+    // Constrói um objeto limpo para evitar problemas de tipos/estado
+    const baseVent = selectedPatient.ventilation || { 
+      fio2: '21', peep: '0', rate: '0', volume: '0', pressure: '0' 
+    };
+    
+    const updatedVent: Ventilation = {
+      ...baseVent,
+      mode: mode
+    };
+    
+    // Atualiza imediatamente
+    await updateICUParams({ ventilation: updatedVent });
+  };
+
+  const handleDrugPresetClick = (preset: typeof DRUG_PRESETS[0]) => {
+    setDoseCalc({
+      drug: preset.name,
+      mg: preset.mg.toString(),
+      ml: preset.ml.toString(),
+      unit: preset.unit,
+      calcType: preset.calcType,
+      rate: doseCalc.rate,
+      result: ''
+    });
   };
 
   const calculateDose = () => {
@@ -186,8 +223,61 @@ export default function App() {
     const ml = parseFloat(doseCalc.ml);
     const rate = parseFloat(doseCalc.rate);
     const weight = selectedPatient.estimatedWeight || 70;
-    const result = ((mg / ml) * 1000 * rate) / (weight * 60);
-    setDoseCalc({ ...doseCalc, result: result.toFixed(2) });
+    
+    let result = 0;
+    if (doseCalc.calcType === 'mcg/kg/min') {
+      result = ((mg / ml) * 1000 * rate) / (weight * 60);
+    } else if (doseCalc.calcType === 'UI/min') {
+      result = ((mg / ml) * rate) / 60;
+    } else if (doseCalc.calcType === 'mcg/kg/h') {
+      result = ((mg / ml) * 1000 * rate) / weight;
+    }
+    
+    setDoseCalc({ ...doseCalc, result: result.toFixed(3) });
+  };
+
+  const addDoseToText = () => {
+    if (!selectedPatient || !doseCalc.result) return;
+    const entry = `${doseCalc.drug}: ${doseCalc.rate} ml/h [${doseCalc.result} ${doseCalc.calcType}]`;
+    const current = safeString(selectedPatient.vasoactiveDrugs);
+    const updated = current ? `${current}\n${entry}` : entry;
+    updateICUParams({ vasoactiveDrugs: updated });
+  };
+
+  // Cálculo do ROX Index e Relação P/F
+  const calculateRespIndices = () => {
+    if (!selectedPatient) return { rox: null, pf: null };
+    
+    const sortedLogs = [...selectedPatient.dailyLogs].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    
+    // Encontra os últimos dados disponíveis
+    const lastSatLog = sortedLogs.find(l => l.vitalSigns.oxygenSaturation);
+    const lastRRLog = sortedLogs.find(l => l.vitalSigns.respiratoryRate);
+    const lastPO2Log = sortedLogs.find(l => l.labs?.some(exam => exam.testName === 'pO2'));
+    
+    const fio2Val = parseFloat(selectedPatient.ventilation?.fio2 || '21') / 100;
+    
+    let rox = null;
+    if (lastSatLog && lastRRLog && fio2Val > 0) {
+      const spo2 = parseFloat(lastSatLog.vitalSigns.oxygenSaturation);
+      const rr = parseFloat(lastRRLog.vitalSigns.respiratoryRate);
+      if (!isNaN(spo2) && !isNaN(rr) && rr > 0) {
+        rox = ((spo2 / fio2Val) / rr).toFixed(2);
+      }
+    }
+
+    let pf = null;
+    if (lastPO2Log && fio2Val > 0) {
+      const po2Exam = lastPO2Log.labs.find(e => e.testName === 'pO2');
+      if (po2Exam) {
+        const po2 = parseFloat(po2Exam.value.toString().replace(',', '.'));
+        if (!isNaN(po2)) {
+          pf = (po2 / fio2Val).toFixed(0);
+        }
+      }
+    }
+
+    return { rox, pf };
   };
 
   const totalFluidBalance = selectedPatient?.dailyLogs.reduce((acc, log) => acc + (log.fluidBalance?.net || 0), 0) || 0;
@@ -218,13 +308,7 @@ export default function App() {
         
         <div className="flex border-b border-slate-700 bg-slate-800">
           {['UTI', 'Enfermaria', 'Finalizados'].map(t => (
-            <button 
-              key={t} 
-              onClick={() => setActiveTab(t as any)} 
-              className={`flex-1 py-3 text-[7px] lg:text-[9px] font-bold uppercase tracking-widest transition-all ${activeTab === t ? 'bg-medical-600 text-white border-b-2 border-white' : 'text-slate-400 hover:text-white'}`}
-            >
-              {t}
-            </button>
+            <button key={t} onClick={() => setActiveTab(t as any)} className={`flex-1 py-3 text-[7px] lg:text-[9px] font-bold uppercase tracking-widest transition-all ${activeTab === t ? 'bg-medical-600 text-white border-b-2 border-white' : 'text-slate-400 hover:text-white'}`}>{t}</button>
           ))}
         </div>
 
@@ -235,7 +319,6 @@ export default function App() {
 
         <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1">
           {isLoading && <div className="p-4 text-center text-slate-500 animate-pulse text-[10px] uppercase font-bold">Sincronizando...</div>}
-          {!isLoading && filteredPatients.length === 0 && <div className="p-8 text-center text-slate-600 text-[9px] uppercase opacity-50 font-bold">Nenhum Registro</div>}
           {filteredPatients.map(p => (
             <div key={p.id} onClick={() => { setSelectedPatientId(p.id); if (window.innerWidth < 1024) setIsSidebarOpen(false); }} className={`p-3 rounded-xl cursor-pointer transition-all border ${selectedPatientId === p.id ? 'bg-medical-700 border-white text-white shadow-md' : 'bg-transparent border-transparent hover:bg-slate-800'}`}>
               <div className="flex justify-between items-center">
@@ -247,7 +330,7 @@ export default function App() {
         </div>
         
         <div className="p-4 border-t border-slate-700">
-          <button onClick={handleLogout} className="w-full flex items-center gap-2 text-[12px] text-slate-400 hover:text-white transition-colors py-2 px-1 rounded hover:bg-slate-800"><LogOut size={16}/> Sair do Sistema</button>
+          <button onClick={handleLogout} className="w-full flex items-center gap-2 text-[12px] text-slate-400 hover:text-white transition-colors py-2 px-1 rounded hover:bg-slate-800"><LogOut size={16}/> Sair</button>
         </div>
       </aside>
 
@@ -262,6 +345,8 @@ export default function App() {
                 <div className="flex flex-wrap gap-x-4 text-[11px] font-medium text-slate-700 mt-1 uppercase">
                   <span className="text-medical-700 font-bold">LEITO: {safeString(selectedPatient.bedNumber)}</span>
                   <span>IDADE: {selectedPatient.age} ANOS</span>
+                  <span>PESO: {selectedPatient.estimatedWeight} KG</span>
+                  <span>ADMISSÃO: {new Date(selectedPatient.admissionDate).toLocaleDateString('pt-BR')}</span>
                   <button onClick={() => { setEditingPatientId(selectedPatient.id); setNewPatientData({...selectedPatient}); setShowAddPatientModal(true); }} className="text-medical-600 underline font-bold uppercase text-[10px]">Alterar</button>
                 </div>
               </div>
@@ -278,142 +363,7 @@ export default function App() {
 
         {selectedPatient ? (
           <div className="flex-1 overflow-y-auto p-4 lg:p-6 space-y-6 bg-white">
-            {/* Seção UTI (Condicional) */}
-            {selectedPatient.unit === 'UTI' && (
-              <section className="bg-slate-50 rounded-xl border border-medical-200 shadow-md overflow-hidden">
-                <div className="px-4 py-3 bg-medical-700 text-white flex items-center justify-between cursor-pointer" onClick={() => toggleSection('icu')}>
-                  <h3 className="font-bold text-[12px] uppercase tracking-widest flex items-center gap-2"><Gauge size={20}/> Parâmetros de Terapia Intensiva</h3>
-                  {collapsedSections['icu'] ? <ChevronDown size={18}/> : <ChevronUp size={18}/>}
-                </div>
-                {!collapsedSections['icu'] && (
-                  <div className="p-4 space-y-6">
-                    {/* Fluid Balance Total */}
-                    <div className="bg-white p-4 rounded-xl border border-slate-200 flex items-center justify-between shadow-sm">
-                      <div className="flex items-center gap-3">
-                        <Droplets className="text-blue-500" size={24}/>
-                        <div>
-                          <p className="text-[10px] font-bold text-slate-500 uppercase">Balanço Hídrico Acumulado</p>
-                          <p className={`text-xl font-black ${totalFluidBalance > 0 ? 'text-blue-600' : totalFluidBalance < 0 ? 'text-red-600' : 'text-slate-700'}`}>
-                            {totalFluidBalance > 0 ? '+' : ''}{totalFluidBalance} ml
-                          </p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase">Dias Registrados</p>
-                        <p className="text-base font-bold text-slate-800">{selectedPatient.dailyLogs.filter(l => l.fluidBalance).length}</p>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                      {/* DVA & Calculator */}
-                      <div className="space-y-4">
-                        <h4 className="text-[11px] font-bold text-medical-800 uppercase flex items-center gap-2 border-b border-medical-100 pb-1"><Calculator size={16}/> Drogas Vasoativas & Sedação</h4>
-                        <div className="space-y-3">
-                          <div>
-                            <label className="text-[10px] font-bold text-slate-500 uppercase">Infusões em Curso</label>
-                            <textarea 
-                              className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm focus:border-medical-500 outline-none text-black"
-                              rows={3}
-                              placeholder="Noradrenalina: 0.2 mcg/kg/min..."
-                              value={safeString(selectedPatient.vasoactiveDrugs)}
-                              onChange={e => updateICUParams({ vasoactiveDrugs: e.target.value })}
-                            />
-                          </div>
-                          {/* Calculator Helper */}
-                          <div className="bg-medical-50 p-3 rounded-lg border border-medical-100 space-y-2">
-                            <p className="text-[9px] font-bold text-medical-700 uppercase">Calculadora de Dose (mcg/kg/min)</p>
-                            <div className="grid grid-cols-3 gap-2">
-                              <input placeholder="mg" className="p-1 border text-xs text-black" type="number" value={doseCalc.mg} onChange={e => setDoseCalc({...doseCalc, mg: e.target.value})}/>
-                              <input placeholder="ml" className="p-1 border text-xs text-black" type="number" value={doseCalc.ml} onChange={e => setDoseCalc({...doseCalc, ml: e.target.value})}/>
-                              <input placeholder="ml/h" className="p-1 border text-xs text-black" type="number" value={doseCalc.rate} onChange={e => setDoseCalc({...doseCalc, rate: e.target.value})}/>
-                            </div>
-                            <div className="flex items-center justify-between">
-                              <button onClick={calculateDose} className="bg-medical-600 text-white px-3 py-1 rounded text-[10px] font-bold uppercase">Calcular</button>
-                              {doseCalc.result && <p className="font-bold text-medical-800">{doseCalc.result} mcg/kg/min</p>}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Ventilation Mechanical */}
-                      <div className="space-y-4">
-                        <h4 className="text-[11px] font-bold text-blue-800 uppercase flex items-center gap-2 border-b border-blue-100 pb-1"><Wind size={16}/> Suporte Ventilatório</h4>
-                        <div className="grid grid-cols-2 gap-3">
-                          <div className="col-span-2">
-                            <label className="text-[10px] font-bold text-slate-500 uppercase">Modo / Interface</label>
-                            <select 
-                              className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black"
-                              value={selectedPatient.ventilation?.mode || 'Espontânea'}
-                              onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, mode: e.target.value as any } as Ventilation })}
-                            >
-                              <option value="Espontânea">Espontânea (AA)</option>
-                              <option value="Cateter/CNAF">Cateter O2 / CNAF</option>
-                              <option value="VNI">VNI (Mascara)</option>
-                              <option value="VM">VM (Invasiva)</option>
-                            </select>
-                          </div>
-                          <div>
-                            <label className="text-[10px] font-bold text-slate-500 uppercase">FiO2 (%)</label>
-                            <input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black" value={selectedPatient.ventilation?.fio2 || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, fio2: e.target.value } as Ventilation })}/>
-                          </div>
-                          {selectedPatient.ventilation?.mode === 'Cateter/CNAF' ? (
-                            <div>
-                              <label className="text-[10px] font-bold text-slate-500 uppercase">Fluxo (L/min)</label>
-                              <input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black" value={selectedPatient.ventilation?.flow || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, flow: e.target.value } as Ventilation })}/>
-                            </div>
-                          ) : (
-                            <>
-                              <div>
-                                <label className="text-[10px] font-bold text-slate-500 uppercase">PEEP / EPAP</label>
-                                <input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black" value={selectedPatient.ventilation?.peep || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, peep: e.target.value } as Ventilation })}/>
-                              </div>
-                              {selectedPatient.ventilation?.mode === 'VM' && (
-                                <>
-                                  <div className="col-span-2">
-                                    <label className="text-[10px] font-bold text-slate-500 uppercase">Sub-Modo (VCV/PCV/PSV)</label>
-                                    <input type="text" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm uppercase text-black" value={selectedPatient.ventilation?.subMode || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, subMode: e.target.value } as Ventilation })}/>
-                                  </div>
-                                  <div>
-                                    <label className="text-[10px] font-bold text-slate-500 uppercase">Pressão Suporte/Insp</label>
-                                    <input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black" value={selectedPatient.ventilation?.pressure || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, pressure: e.target.value } as Ventilation })}/>
-                                  </div>
-                                  <div>
-                                    <label className="text-[10px] font-bold text-slate-500 uppercase">Volume Corrente</label>
-                                    <input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black" value={selectedPatient.ventilation?.volume || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, volume: e.target.value } as Ventilation })}/>
-                                  </div>
-                                </>
-                              )}
-                            </>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Devices Management */}
-                      <div className="col-span-1 lg:col-span-2 space-y-3">
-                        <h4 className="text-[11px] font-bold text-orange-800 uppercase flex items-center gap-2 border-b border-orange-100 pb-1"><Calendar size={16}/> Dispositivos & Invasões</h4>
-                        <div className="flex gap-2">
-                          <input placeholder="Ex: Cateter Venoso Central" className="flex-1 bg-white border rounded-lg p-2 text-sm text-black" value={newDeviceName} onChange={e => setNewDeviceName(e.target.value)}/>
-                          <input type="date" className="bg-white border rounded-lg p-2 text-sm text-black" value={newDeviceDate} onChange={e => setNewDeviceDate(e.target.value)}/>
-                          <button onClick={() => { updatePatientList('devices_list', { id: Date.now().toString(), name: newDeviceName, insertionDate: newDeviceDate }, 'add'); setNewDeviceName(''); }} className="bg-orange-600 text-white px-4 py-2 rounded-lg font-bold text-[11px] uppercase shadow-sm">Adicionar</button>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                          {selectedPatient.devices_list?.map((dev, i) => (
-                            <div key={dev.id} className="bg-white p-2 border border-orange-100 rounded-lg flex items-center justify-between shadow-sm">
-                              <div>
-                                <p className="text-[11px] font-bold text-slate-800">{safeString(dev.name)}</p>
-                                <p className="text-[9px] text-slate-500 font-bold uppercase">Inserção: {new Date(dev.insertionDate).toLocaleDateString('pt-BR')}</p>
-                              </div>
-                              <button onClick={() => updatePatientList('devices_list', null, 'remove', i)} className="text-slate-300 hover:text-red-600"><X size={16}/></button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </section>
-            )}
-
+            
             {/* Hipóteses Diagnósticas */}
             <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
               <div className="px-4 py-2 bg-slate-100 border-b flex items-center justify-between cursor-pointer" onClick={() => toggleSection('dx')}>
@@ -533,13 +483,230 @@ export default function App() {
                         await PatientService.upsertDailyLog(selectedPatient.id, { ...log, labs: newLabs } as any);
                         await loadPatients();
                       } catch (err) {
-                        alert(`Erro ao atualizar exames: ${stringifyError(err)}`);
+                        alert(`Erro: ${stringifyError(err)}`);
                       }
                     }
                   }} />
                 </div>
               )}
             </section>
+
+            {/* Seção UTI (ABA DE PARÂMETROS DE TERAPIA INTENSIVA) */}
+            {selectedPatient.unit === 'UTI' && (
+              <section className="bg-slate-50 rounded-xl border border-medical-200 shadow-md overflow-hidden">
+                <div className="px-4 py-3 bg-medical-700 text-white flex items-center justify-between cursor-pointer" onClick={() => toggleSection('icu')}>
+                  <h3 className="font-bold text-[12px] uppercase tracking-widest flex items-center gap-2"><Gauge size={20}/> Parâmetros de Terapia Intensiva</h3>
+                  {collapsedSections['icu'] ? <ChevronDown size={18}/> : <ChevronUp size={18}/>}
+                </div>
+                {!collapsedSections['icu'] && (
+                  <div className="p-4 space-y-6">
+                    {/* Fluid Balance Total */}
+                    <div className="bg-white p-4 rounded-xl border border-slate-200 flex items-center justify-between shadow-sm">
+                      <div className="flex items-center gap-3">
+                        <Droplets className="text-blue-500" size={24}/>
+                        <div>
+                          <p className="text-[10px] font-bold text-slate-500 uppercase">Balanço Hídrico Acumulado</p>
+                          <p className={`text-xl font-black ${totalFluidBalance > 0 ? 'text-blue-600' : totalFluidBalance < 0 ? 'text-red-600' : 'text-slate-700'}`}>
+                            {totalFluidBalance > 0 ? '+' : ''}{totalFluidBalance} ml
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase">Dias Registrados</p>
+                        <p className="text-base font-bold text-slate-800">{selectedPatient.dailyLogs.filter(l => l.fluidBalance).length}</p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      {/* Drogas Vasoativas & Sedação Inteligente */}
+                      <div className="space-y-4">
+                        <h4 className="text-[11px] font-bold text-medical-800 uppercase flex items-center gap-2 border-b border-medical-100 pb-1"><Calculator size={16}/> Drogas Vasoativas & Sedação</h4>
+                        
+                        <div className="flex flex-wrap gap-1.5 mb-3">
+                          {DRUG_PRESETS.map(preset => (
+                            <button 
+                              key={preset.id} 
+                              onClick={() => handleDrugPresetClick(preset)}
+                              className={`px-3 py-1.5 rounded-full text-[10px] font-bold uppercase transition-all border ${doseCalc.drug === preset.name ? 'bg-medical-600 text-white border-medical-700 shadow-sm' : 'bg-white text-medical-700 border-medical-200 hover:bg-medical-50'}`}
+                            >
+                              {preset.name}
+                            </button>
+                          ))}
+                        </div>
+
+                        <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-4 shadow-sm">
+                           <div className="grid grid-cols-2 gap-3">
+                              <div className="col-span-2">
+                                <label className="text-[9px] font-bold text-slate-500 uppercase">Nome da Droga</label>
+                                <input placeholder="Nome ou selecione acima..." className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-lg p-2 text-sm text-black outline-none focus:border-medical-500" value={doseCalc.drug} onChange={e => setDoseCalc({...doseCalc, drug: e.target.value})}/>
+                              </div>
+                              <div>
+                                <label className="text-[9px] font-bold text-slate-500 uppercase">Massa ({doseCalc.unit})</label>
+                                <input type="number" className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-lg p-2 text-sm text-black" value={doseCalc.mg} onChange={e => setDoseCalc({...doseCalc, mg: e.target.value})}/>
+                              </div>
+                              <div>
+                                <label className="text-[9px] font-bold text-slate-500 uppercase">Volume Solução (ml)</label>
+                                <input type="number" className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-lg p-2 text-sm text-black" value={doseCalc.ml} onChange={e => setDoseCalc({...doseCalc, ml: e.target.value})}/>
+                              </div>
+                              <div>
+                                <label className="text-[9px] font-bold text-slate-500 uppercase">Vazão (ml/h)</label>
+                                <input type="number" className="w-full mt-1 border-2 border-medical-200 rounded-lg p-2 text-sm text-black font-bold focus:border-medical-500 outline-none" value={doseCalc.rate} onChange={e => setDoseCalc({...doseCalc, rate: e.target.value})}/>
+                              </div>
+                              <div className="flex flex-col justify-end">
+                                <button onClick={calculateDose} className="w-full bg-medical-700 text-white p-2 rounded-lg text-[11px] font-bold uppercase shadow-sm flex items-center justify-center gap-2"><FlaskConical size={14}/> Calcular</button>
+                              </div>
+                           </div>
+
+                           {doseCalc.result && (
+                             <div className="bg-medical-50 p-3 rounded-lg border border-medical-200 flex items-center justify-between">
+                               <div>
+                                  <p className="text-[9px] font-bold text-medical-800 uppercase">Dose Calculada:</p>
+                                  <p className="text-lg font-black text-medical-900">{doseCalc.result} <span className="text-xs font-bold">{doseCalc.calcType}</span></p>
+                               </div>
+                               <button onClick={addDoseToText} className="bg-white text-medical-700 border border-medical-300 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase hover:bg-medical-600 hover:text-white transition-all">Inserir na Lista</button>
+                             </div>
+                           )}
+                        </div>
+
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Infusões em Curso (Lista Completa)</label>
+                          <textarea 
+                            className="w-full bg-white border border-slate-200 rounded-lg p-3 text-sm font-mono focus:border-medical-500 outline-none text-black leading-relaxed"
+                            rows={4}
+                            placeholder="A lista de infusões aparecerá aqui..."
+                            value={safeString(selectedPatient.vasoactiveDrugs)}
+                            onChange={e => updateICUParams({ vasoactiveDrugs: e.target.value })}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Suporte Ventilatório Robusto */}
+                      <div className="space-y-4">
+                        <h4 className="text-[11px] font-bold text-blue-800 uppercase flex items-center gap-2 border-b border-blue-100 pb-1"><Wind size={16}/> Suporte Ventilatório</h4>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="col-span-2">
+                            <label className="text-[10px] font-bold text-slate-500 uppercase">Modo Principal</label>
+                            <select 
+                              className="w-full mt-1 bg-white border-2 border-blue-100 rounded-lg p-2.5 text-sm text-black font-bold shadow-sm focus:border-blue-500 outline-none transition-all"
+                              value={selectedPatient.ventilation?.mode || 'Espontânea'}
+                              onChange={e => handleVentilationModeChange(e.target.value as any)}
+                            >
+                              <option value="Espontânea">Espontânea (AA)</option>
+                              <option value="Cateter/CNAF">Cateter O2 / CNAF</option>
+                              <option value="VNI">VNI (Máscara)</option>
+                              <option value="VM">VM (Invasiva)</option>
+                            </select>
+                          </div>
+
+                          {/* Campos específicos por modo */}
+                          {selectedPatient.ventilation?.mode === 'Cateter/CNAF' && (
+                            <>
+                              <div className="col-span-1">
+                                <label className="text-[10px] font-bold text-slate-500 uppercase">FiO2 (%)</label>
+                                <input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.fio2 || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, fio2: e.target.value } as Ventilation })}/>
+                              </div>
+                              <div className="col-span-1">
+                                <label className="text-[10px] font-bold text-slate-500 uppercase">Fluxo (L/min)</label>
+                                <input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.flow || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, flow: e.target.value } as Ventilation })}/>
+                              </div>
+                              {/* Cálculo ROX Index e Relação P/F */}
+                              <div className="col-span-2 grid grid-cols-2 gap-2 mt-2">
+                                 <div className="bg-blue-50 border border-blue-200 p-2.5 rounded-xl shadow-sm">
+                                   <p className="text-[9px] font-bold text-blue-800 uppercase flex items-center gap-1"><AlertCircle size={12}/> Índice de ROX</p>
+                                   <p className={`text-lg font-black ${calculateRespIndices().rox && parseFloat(calculateRespIndices().rox!) > 4.88 ? 'text-green-600' : 'text-red-600'}`}>
+                                     {calculateRespIndices().rox || '---'}
+                                   </p>
+                                 </div>
+                                 <div className="bg-indigo-50 border border-indigo-200 p-2.5 rounded-xl shadow-sm">
+                                   <p className="text-[9px] font-bold text-indigo-800 uppercase flex items-center gap-1"><Activity size={12}/> Relação P/F</p>
+                                   <p className={`text-lg font-black ${calculateRespIndices().pf && parseFloat(calculateRespIndices().pf!) > 300 ? 'text-green-600' : parseFloat(calculateRespIndices().pf!) > 200 ? 'text-orange-500' : 'text-red-600'}`}>
+                                     {calculateRespIndices().pf || '---'}
+                                   </p>
+                                 </div>
+                              </div>
+                            </>
+                          )}
+
+                          {selectedPatient.ventilation?.mode === 'VNI' && (
+                            <>
+                              <div className="col-span-2">
+                                <label className="text-[10px] font-bold text-slate-500 uppercase">FiO2 (%)</label>
+                                <input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.fio2 || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, fio2: e.target.value } as Ventilation })}/>
+                              </div>
+                              <div>
+                                <label className="text-[10px] font-bold text-slate-500 uppercase">EPAP (PEEP)</label>
+                                <input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.peep || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, peep: e.target.value } as Ventilation })}/>
+                              </div>
+                              <div>
+                                <label className="text-[10px] font-bold text-slate-500 uppercase">IPAP (Pressão)</label>
+                                <input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.pressure || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, pressure: e.target.value } as Ventilation })}/>
+                              </div>
+                            </>
+                          )}
+
+                          {selectedPatient.ventilation?.mode === 'VM' && (
+                            <>
+                              <div className="col-span-2">
+                                <label className="text-[10px] font-bold text-slate-500 uppercase">Modo Específico (Ex: VCV, PCV, SIMV)</label>
+                                <input type="text" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm uppercase text-black font-black" value={selectedPatient.ventilation?.subMode || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, subMode: e.target.value } as Ventilation })} placeholder="VCV / PCV / PSV..."/>
+                              </div>
+                              <div>
+                                <label className="text-[10px] font-bold text-slate-500 uppercase">FiO2 (%)</label>
+                                <input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.fio2 || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, fio2: e.target.value } as Ventilation })}/>
+                              </div>
+                              <div>
+                                <label className="text-[10px] font-bold text-slate-500 uppercase">PEEP</label>
+                                <input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.peep || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, peep: e.target.value } as Ventilation })}/>
+                              </div>
+                              <div>
+                                <label className="text-[10px] font-bold text-slate-500 uppercase">FR V. (Freq. Ventilador)</label>
+                                <input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.rate || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, rate: e.target.value } as Ventilation })}/>
+                              </div>
+                              <div>
+                                <label className="text-[10px] font-bold text-slate-500 uppercase">Volume (ml)</label>
+                                <input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.volume || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, volume: e.target.value } as Ventilation })}/>
+                              </div>
+                              <div className="col-span-2">
+                                <label className="text-[10px] font-bold text-slate-500 uppercase">P. Pico / Platô / Insp</label>
+                                <input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.pressure || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, pressure: e.target.value } as Ventilation })}/>
+                              </div>
+                              {/* Relação P/F em VM */}
+                              <div className="col-span-2 bg-indigo-50 border border-indigo-200 p-2.5 rounded-xl shadow-sm mt-1">
+                                 <p className="text-[9px] font-bold text-indigo-800 uppercase flex items-center gap-1"><Activity size={12}/> Relação P/F (Calculada)</p>
+                                 <p className={`text-xl font-black ${calculateRespIndices().pf && parseFloat(calculateRespIndices().pf!) > 300 ? 'text-green-600' : parseFloat(calculateRespIndices().pf!) > 200 ? 'text-orange-500' : 'text-red-600'}`}>
+                                   {calculateRespIndices().pf || '---'}
+                                 </p>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Dispositivos & Invasões */}
+                      <div className="col-span-1 lg:col-span-2 space-y-3">
+                        <h4 className="text-[11px] font-bold text-orange-800 uppercase flex items-center gap-2 border-b border-orange-100 pb-1"><Calendar size={16}/> Dispositivos & Invasões</h4>
+                        <div className="flex gap-2">
+                          <input placeholder="Ex: Cateter Venoso Central" className="flex-1 bg-white border rounded-lg p-2 text-sm text-black" value={newDeviceName} onChange={e => setNewDeviceName(e.target.value)}/>
+                          <input type="date" className="bg-white border rounded-lg p-2 text-sm text-black" value={newDeviceDate} onChange={e => setNewDeviceDate(e.target.value)}/>
+                          <button onClick={() => { updatePatientList('devices_list', { id: Date.now().toString(), name: newDeviceName, insertionDate: newDeviceDate }, 'add'); setNewDeviceName(''); }} className="bg-orange-600 text-white px-4 py-2 rounded-lg font-bold text-[11px] uppercase shadow-sm">Adicionar</button>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                          {selectedPatient.devices_list?.map((dev, i) => (
+                            <div key={dev.id} className="bg-white p-2 border border-orange-100 rounded-lg flex items-center justify-between shadow-sm">
+                              <div>
+                                <p className="text-[11px] font-bold text-slate-800">{safeString(dev.name)}</p>
+                                <p className="text-[9px] text-slate-500 font-bold uppercase">Inserção: {new Date(dev.insertionDate).toLocaleDateString('pt-BR')}</p>
+                              </div>
+                              <button onClick={() => updatePatientList('devices_list', null, 'remove', i)} className="text-slate-300 hover:text-red-600"><X size={16}/></button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </section>
+            )}
             
             {/* Histórico */}
             <section className="space-y-3">
@@ -567,6 +734,10 @@ export default function App() {
                         <div className="bg-slate-50 p-2 rounded-lg border border-slate-100 text-center">
                            <div className="text-[9px] text-slate-400 font-bold uppercase mb-0.5">FC</div>
                            <div className="font-bold text-black text-xs">{safeString(log.vitalSigns.heartRate)} bpm</div>
+                        </div>
+                        <div className="bg-slate-50 p-2 rounded-lg border border-slate-100 text-center">
+                           <div className="text-[9px] text-slate-400 font-bold uppercase mb-0.5">FR</div>
+                           <div className="font-bold text-black text-xs">{safeString(log.vitalSigns.respiratoryRate)} irpm</div>
                         </div>
                         <div className="bg-slate-50 p-2 rounded-lg border border-slate-100 text-center">
                            <div className="text-[9px] text-slate-400 font-bold uppercase mb-0.5">PA</div>
