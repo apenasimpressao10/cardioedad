@@ -1,4 +1,5 @@
-import { GoogleGenAI } from "@google/genai";
+
+import { GoogleGenAI, Type } from "@google/genai";
 import { Patient } from "../types";
 
 // Initialize the Gemini client
@@ -6,61 +7,69 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const generateClinicalSummary = async (patient: Patient): Promise<string> => {
   try {
-    const recentLogs = patient.dailyLogs.slice(0, 3); // Last 3 days
+    // Pegar os últimos 5 logs para uma análise mais profunda se disponível
+    const recentLogs = patient.dailyLogs.slice(-5); 
     
     const prompt = `
-      Atue como um residente sênior de medicina interna.
+      Atue como um residente sênior de medicina interna ou intensivista.
       Analise os dados do paciente a seguir e forneça um resumo clínico conciso e uma análise de tendências (máx. 150 palavras) em PORTUGUÊS.
-      Concentre-se na evolução dos sinais vitais, novas hipóteses diagnósticas e principais resultados laboratoriais.
+      Concentre-se na evolução dos sinais vitais, balanço hídrico (se UTI), novas hipóteses diagnósticas e principais resultados laboratoriais.
 
       Paciente: ${patient.name}, ${patient.age} anos, ${patient.gender}, Leito ${patient.bedNumber}.
       Admissão: ${patient.admissionDate}
       Hipóteses Diagnósticas Atuais: ${patient.diagnosticHypotheses.join(', ')}
+      Histórico: ${patient.admissionHistory}
 
-      Registros Diários Recentes (Últimos 3):
+      Registros Diários Recentes:
       ${JSON.stringify(recentLogs, null, 2)}
 
-      Formate a saída como um trecho de nota médica profissional.
+      Formate a saída como uma nota médica profissional e direta. Aponte sinais de alerta se existirem.
     `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-pro-preview',
       contents: prompt,
       config: {
-        thinkingConfig: { thinkingBudget: 0 } // Low latency preferred for UI interactions
+        thinkingConfig: { thinkingBudget: 0 } 
       }
     });
 
     return response.text || "Nenhum resumo gerado.";
   } catch (error) {
     console.error("Error generating clinical summary:", error);
-    return "Não foi possível gerar o resumo da IA neste momento. Verifique a configuração da sua chave de API.";
+    return "Não foi possível gerar o resumo da IA no momento. Verifique a conexão.";
   }
 };
 
 export const suggestHypotheses = async (symptoms: string, currentHypotheses: string[]): Promise<string[]> => {
   try {
     const prompt = `
-      Dados os seguintes sintomas/observações relatados: "${symptoms}"
-      E hipóteses atuais: ${JSON.stringify(currentHypotheses)}
+      Dados os seguintes sintomas/observações: "${symptoms}"
+      Hipóteses atuais: ${JSON.stringify(currentHypotheses)}
       
-      Sugira 3-5 hipóteses diagnósticas adicionais ou diagnósticos diferenciais a serem considerados.
+      Sugira 3-5 hipóteses diagnósticas adicionais ou diferenciais relevantes.
       Responda em PORTUGUÊS.
       Retorne APENAS um array JSON de strings.
     `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-flash-preview',
       contents: prompt,
       config: {
-        responseMimeType: 'application/json'
+        responseMimeType: 'application/json',
+        // Following @google/genai guidelines for structured JSON response
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.STRING
+          }
+        }
       }
     });
 
     const text = response.text;
     if (!text) return [];
     
-    // Parse JSON
     return JSON.parse(text) as string[];
   } catch (error) {
     console.error("Error suggesting hypotheses:", error);

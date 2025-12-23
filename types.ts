@@ -9,6 +9,17 @@ export interface VitalSigns {
   capillaryBloodGlucose: string; // mg/dL
 }
 
+export interface Ventilation {
+  mode: 'Espontânea' | 'Cateter/CNAF' | 'VNI' | 'VM';
+  fio2: string; // %
+  peep: string; // cmH2O ou EPAP
+  rate: string; // irpm
+  volume: string; // ml
+  pressure: string; // cmH2O (IPAP ou Pressão de Suporte/Insp)
+  flow?: string; // L/min (para Cateter)
+  subMode?: string; // VCV, PCV, PSV
+}
+
 export interface LabResult {
   testName: string;
   value: string | number;
@@ -27,22 +38,28 @@ export interface FluidBalance {
   net: number; // ml (calculated)
 }
 
+export interface Device {
+  id: string;
+  name: string;
+  insertionDate: string;
+}
+
 export interface DailyLog {
   id: string;
   date: string; // ISO Date string
   vitalSigns: VitalSigns;
-  notes: string; // Free text, renamed from nursingNotes
+  notes: string; // Free text
   prescriptions: string[]; // Bullet points
-  conducts: Conduct[]; // Renamed from procedures, now with verification
+  conducts: Conduct[]; 
   labs: LabResult[];
-  fluidBalance?: FluidBalance; // New field for ICU fluid tracking
+  fluidBalance?: FluidBalance; 
 }
 
 export interface Attachment {
   id: string;
   name: string;
   type: 'image' | 'file';
-  url: string; // Base64 data or URL
+  url: string; 
   date: string;
 }
 
@@ -51,20 +68,21 @@ export interface Patient {
   name: string;
   age: number;
   gender: 'Masculino' | 'Feminino' | 'Outro';
-  estimatedWeight?: number; // New field for weight in kg
+  estimatedWeight?: number; 
   bedNumber: string;
-  unit: 'UTI' | 'Enfermaria' | 'Arquivo Morto'; // Added Arquivo Morto
-  status: 'active' | 'completed' | 'deleted'; // Added 'deleted' for soft delete logic
+  unit: 'UTI' | 'Enfermaria' | 'Arquivo Morto'; 
+  status: 'active' | 'completed' | 'deleted'; 
   admissionDate: string;
-  admissionHistory: string; // New text field
-  personalHistory: string[]; // New list
-  homeMedications: string[]; // New list
-  medicalPrescription: string; // New text field for current hospital prescription
-  // ICU Specific Fields
+  admissionHistory: string; 
+  personalHistory: string[]; 
+  homeMedications: string[]; 
+  medicalPrescription: string; 
+  // ICU Structured Fields
   vasoactiveDrugs?: string;
   sedationAnalgesia?: string;
-  devices?: string;
-  diagnosticHypotheses: string[]; // Bullet points
+  devices_list?: Device[]; 
+  ventilation?: Ventilation; 
+  diagnosticHypotheses: string[]; 
   dailyLogs: DailyLog[];
-  attachments: Attachment[]; // New field for files and photos
+  attachments: Attachment[]; 
 }
