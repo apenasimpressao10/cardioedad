@@ -50,7 +50,7 @@ const mapAttachmentFromDB = (a: any): Attachment => ({
   type: a.type as 'image' | 'file',
   url: a.url,
   date: a.created_at || a.date,
-  status: 'active' // Como a coluna não existe no DB, mapeamos como ativo para interface
+  status: 'active' // Valor virtual para UI, pois a coluna não existe no DB
 });
 
 // --- Services ---
@@ -111,7 +111,6 @@ export const updatePatient = async (patientId: string, updates: Partial<Patient>
   if (updates.admissionDate !== undefined) dbUpdates.admission_date = updates.admissionDate;
   if (updates.medicalPrescription !== undefined) dbUpdates.medical_prescription = updates.medicalPrescription;
   if (updates.diagnosticHypotheses !== undefined) dbUpdates.diagnostic_hypotheses = updates.diagnosticHypotheses;
-  // Fix: use updates.vasoactiveDrugs instead of updates.vasoactive_drugs to align with the Patient interface
   if (updates.vasoactiveDrugs !== undefined) dbUpdates.vasoactive_drugs = updates.vasoactiveDrugs;
   if (updates.devices_list !== undefined) dbUpdates.devices_list = updates.devices_list;
   if (updates.ventilation !== undefined) dbUpdates.ventilation = updates.ventilation;
@@ -165,6 +164,7 @@ export const addAttachment = async (patientId: string, attachment: Omit<Attachme
       name: attachment.name,
       type: attachment.type,
       url: attachment.url
+      // 'status' removido aqui para evitar erro de esquema
     };
     const { data, error } = await supabase.from('attachments').insert(payload).select().single();
     if (error) throw error;
@@ -174,9 +174,6 @@ export const addAttachment = async (patientId: string, attachment: Omit<Attachme
   }
 };
 
-/**
- * Remove o anexo permanentemente, já que a coluna 'status' não está disponível.
- */
 export const deleteAttachment = async (attachmentId: string) => {
   try {
     const { error } = await supabase
