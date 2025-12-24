@@ -1,11 +1,11 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Activity, BrainCircuit, PlusCircle, ChevronDown, ChevronUp, Menu, X, 
   ClipboardList, History, Pencil, Check, Trash2, 
-  UserPlus, Printer, ArrowRightLeft, Pill, Microscope, HeartPulse, LogOut, Droplets, Wind, Gauge, Calculator, Calendar, FlaskConical, AlertCircle
+  UserPlus, Printer, ArrowRightLeft, Pill, Microscope, HeartPulse, LogOut, Wind, Gauge, Calculator, Calendar, FlaskConical, AlertCircle, ArchiveRestore, Archive, FileText, Image as ImageIcon, Maximize2, Upload, Download, EyeOff, Weight
 } from 'lucide-react';
-import { Patient, DailyLog, Device, Ventilation } from './types';
+import { Patient, DailyLog, Device, Ventilation, Attachment } from './types';
 import DailyLogForm from './components/DailyLogForm';
 import LabResultTable from './components/LabResultTable';
 import { PatientPrintView, PatientListPrintView } from './components/PrintViews';
@@ -62,10 +62,10 @@ export default function App() {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'UTI' | 'Enfermaria' | 'Finalizados'>('UTI');
+  const [activeTab, setActiveTab] = useState<'UTI' | 'Enfermaria'>('UTI');
   const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth >= 1024);
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({
-    'dx': false, 'icu': false, 'antecedents': false, 'rx': false, 'labs': false, 'history': false, 'devices': false
+    'dx': false, 'icu': false, 'antecedents': false, 'rx': false, 'labs': false, 'history': false, 'devices': false, 'attachments': false
   });
   const [collapsedLogs, setCollapsedLogs] = useState<Record<string, boolean>>({});
 
@@ -74,12 +74,12 @@ export default function App() {
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [showPrintPreview, setShowPrintPreview] = useState(false);
   const [showPlantaoPrint, setShowPlantaoPrint] = useState(false);
+  const [showFinalizedListModal, setShowFinalizedListModal] = useState(false);
+  const [maximizedAttachment, setMaximizedAttachment] = useState<Attachment | null>(null);
 
   const [editingLog, setEditingLog] = useState<DailyLog | null>(null);
   const [editingPatientId, setEditingPatientId] = useState<string | null>(null);
   const [newPatientData, setNewPatientData] = useState(INITIAL_NEW_PATIENT_STATE);
-  const [editingPrescription, setEditingPrescription] = useState(false);
-  const [tempPrescription, setTempPrescription] = useState('');
   
   const [newDiagnosis, setNewDiagnosis] = useState('');
   const [editingDxIndex, setEditingDxIndex] = useState<number | null>(null);
@@ -90,8 +90,9 @@ export default function App() {
 
   const [newDeviceName, setNewDeviceName] = useState('');
   const [newDeviceDate, setNewDeviceDate] = useState(new Date().toISOString().split('T')[0]);
-  const [editingDeviceId, setEditingDeviceId] = useState<string | null>(null);
   const [doseCalc, setDoseCalc] = useState({ drug: '', mg: '', ml: '', rate: '', result: '', unit: 'mg', calcType: 'mcg/kg/min' });
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { if (isAuthenticated) loadPatients(); }, [isAuthenticated]);
 
@@ -112,12 +113,8 @@ export default function App() {
   };
 
   const selectedPatient = patients.find(p => p.id === selectedPatientId) || null;
-  const filteredPatients = (patients || []).filter(p => activeTab === 'Finalizados' ? p.status === 'completed' : p.unit === activeTab && p.status === 'active');
-
-  useEffect(() => {
-    if (selectedPatient) setTempPrescription(safeString(selectedPatient.medicalPrescription));
-    setEditingPrescription(false);
-  }, [selectedPatientId, selectedPatient?.medicalPrescription]);
+  const filteredPatients = (patients || []).filter(p => p.unit === activeTab && p.status === 'active');
+  const finalizedPatients = (patients || []).filter(p => p.status === 'completed');
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -156,11 +153,6 @@ export default function App() {
     }
   };
 
-  const handleDeleteLog = async (logId: string) => {
-    if (!selectedPatientId || !window.confirm('Excluir este registro clínico?')) return;
-    try { await PatientService.deleteDailyLog(logId); await loadPatients(); } catch (err) { alert(`Erro ao excluir: ${stringifyError(err)}`); }
-  };
-
   const updatePatientList = async (field: any, value: any, action: 'add' | 'remove' | 'edit' | 'reorder', index?: number) => {
     if (!selectedPatientId || !selectedPatient) return;
     let newList = [...(selectedPatient[field] || [])];
@@ -196,32 +188,6 @@ export default function App() {
     await updateICUParams({ ventilation: updatedVent });
   };
 
-  const calculateRespIndices = () => {
-    if (!selectedPatient) return { rox: null, pf: null };
-    const sortedLogs = [...selectedPatient.dailyLogs].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    const lastPO2Log = sortedLogs.find(l => l.labs?.some(exam => exam.testName === 'pO2'));
-    const fio2Val = parseFloat(selectedPatient.ventilation?.fio2 || '21') / 100;
-    
-    let rox = null;
-    const lastSatLog = sortedLogs.find(l => l.vitalSigns.oxygenSaturation);
-    const lastRRLog = sortedLogs.find(l => l.vitalSigns.respiratoryRate);
-    if (lastSatLog && lastRRLog && fio2Val > 0) {
-      const spo2 = parseFloat(lastSatLog.vitalSigns.oxygenSaturation);
-      const rr = parseFloat(lastRRLog.vitalSigns.respiratoryRate);
-      if (!isNaN(spo2) && !isNaN(rr) && rr > 0) rox = ((spo2 / fio2Val) / rr).toFixed(2);
-    }
-
-    let pf = null;
-    if (lastPO2Log && fio2Val > 0) {
-      const po2Exam = lastPO2Log.labs.find(e => e.testName === 'pO2');
-      if (po2Exam) {
-        const po2 = parseFloat(po2Exam.value.toString().replace(',', '.'));
-        if (!isNaN(po2)) pf = (po2 / fio2Val).toFixed(0);
-      }
-    }
-    return { rox, pf };
-  };
-
   const handleDrugPresetClick = (preset: typeof DRUG_PRESETS[0]) => {
     setDoseCalc({ drug: preset.name, mg: preset.mg.toString(), ml: preset.ml.toString(), rate: '', result: '', unit: preset.unit, calcType: preset.calcType });
   };
@@ -248,7 +214,64 @@ export default function App() {
     updateICUParams({ vasoactiveDrugs: updated });
   };
 
-  const totalFluidBalance = selectedPatient?.dailyLogs.reduce((acc, log) => acc + (log.fluidBalance?.net || 0), 0) || 0;
+  const handleConfirmTransfer = async () => {
+    if (!selectedPatientId) return;
+    const updates: Partial<Patient> = {};
+    if (transferTarget === 'Finalizados') {
+      updates.status = 'completed';
+    } else {
+      updates.unit = transferTarget as any;
+      updates.status = 'active';
+    }
+
+    setPatients(prev => prev.map(p => p.id === selectedPatientId ? { ...p, ...updates } : p));
+    if (transferTarget === 'Finalizados') setSelectedPatientId(null);
+    setShowTransferModal(false);
+
+    try {
+      await PatientService.updatePatient(selectedPatientId, updates);
+      await loadPatients();
+    } catch (err) { 
+      alert(`Erro ao transferir: ${stringifyError(err)}`); 
+      await loadPatients(); 
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedPatientId) return;
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      const base64String = reader.result as string;
+      try {
+        const newAttachment = {
+          name: file.name,
+          type: (file.type.startsWith('image/') ? 'image' : 'file') as 'image' | 'file',
+          url: base64String,
+          date: new Date().toISOString(),
+          status: 'active' as const
+        };
+        await PatientService.addAttachment(selectedPatientId, newAttachment);
+        await loadPatients();
+      } catch (err) { alert(`Erro no upload: ${stringifyError(err)}`); }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleInactivateAttachment = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    if (!window.confirm('Deseja inativar este anexo?')) return;
+    setPatients(prev => prev.map(p => ({
+      ...p,
+      attachments: p.attachments?.map(a => a.id === id ? { ...a, status: 'inactive' } : a) || []
+    })));
+    try {
+      await PatientService.inactivateAttachment(id);
+      await loadPatients();
+    } catch (err) { alert(`Erro ao inativar: ${stringifyError(err)}`); await loadPatients(); }
+  };
+
+  const activeAttachments = selectedPatient?.attachments?.filter(a => a.status === 'active') || [];
 
   if (!isAuthenticated) {
     return (
@@ -267,14 +290,15 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-white overflow-hidden font-sans text-[13px] lg:text-[15px] text-black">
-      <aside className={`fixed inset-y-0 left-0 z-30 lg:static transition-all duration-300 transform ${isSidebarOpen ? 'translate-x-0 w-64 lg:w-72' : '-translate-x-full lg:translate-x-0 lg:w-0'} bg-slate-900 text-white flex flex-col shadow-xl border-r border-slate-700`}>
+      {/* Sidebar lateral */}
+      <aside className={`fixed inset-y-0 left-0 z-40 lg:static transition-all duration-300 transform ${isSidebarOpen ? 'translate-x-0 w-64 lg:w-72' : '-translate-x-full lg:w-0 lg:overflow-hidden'} bg-slate-900 text-white flex flex-col shadow-xl border-r border-slate-700`}>
         <div className="p-4 border-b border-slate-700 flex items-center justify-between">
           <div className="flex items-center gap-2"><Activity className="text-medical-400" size={20} /><h1 className="font-bold text-base lg:text-lg tracking-tight">CardioEDAD</h1></div>
           <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden text-slate-400 hover:text-white"><X size={24}/></button>
         </div>
         <div className="flex border-b border-slate-700 bg-slate-800">
-          {['UTI', 'Enfermaria', 'Finalizados'].map(t => (
-            <button key={t} onClick={() => setActiveTab(t as any)} className={`flex-1 py-3 text-[7px] lg:text-[9px] font-bold uppercase tracking-widest transition-all ${activeTab === t ? 'bg-medical-600 text-white border-b-2 border-white' : 'text-slate-400 hover:text-white'}`}>{t}</button>
+          {['UTI', 'Enfermaria'].map(t => (
+            <button key={t} onClick={() => setActiveTab(t as any)} className={`flex-1 py-3 text-[9px] font-bold uppercase tracking-widest transition-all ${activeTab === t ? 'bg-medical-600 text-white border-b-2 border-white' : 'text-slate-400 hover:text-white'}`}>{t}</button>
           ))}
         </div>
         <div className="p-3 space-y-2">
@@ -292,26 +316,33 @@ export default function App() {
             </div>
           ))}
         </div>
-        <div className="p-4 border-t border-slate-700">
-          <button onClick={handleLogout} className="w-full flex items-center gap-2 text-[12px] text-slate-400 hover:text-white transition-colors py-2 px-1 rounded hover:bg-slate-800"><LogOut size={16}/> Sair</button>
+        <div className="p-3 space-y-1 mt-auto border-t border-slate-700 bg-slate-900">
+          <button onClick={() => setShowFinalizedListModal(true)} className="w-full flex items-center gap-2 text-[11px] text-slate-400 hover:text-white transition-colors py-2.5 px-3 rounded-xl hover:bg-slate-800 font-bold uppercase tracking-wider"><Archive size={16}/> Finalizados</button>
+          <button onClick={handleLogout} className="w-full flex items-center gap-2 text-[11px] text-slate-400 hover:text-white transition-colors py-2.5 px-3 rounded-xl hover:bg-slate-800 font-bold uppercase tracking-wider"><LogOut size={16}/> Sair</button>
         </div>
       </aside>
 
       <main className="flex-1 flex flex-col overflow-hidden bg-white">
-        <header className="bg-slate-50 border-b px-6 py-3 flex flex-col md:flex-row items-center justify-between gap-3 shadow-sm z-20">
-          <div className="flex items-center gap-4 w-full md:w-auto">
-            {!isSidebarOpen && <button onClick={() => setIsSidebarOpen(true)} className="p-2 bg-white rounded-lg border border-slate-200"><Menu size={20}/></button>}
-            {selectedPatient && (
+        <header className="bg-slate-50 border-b px-4 lg:px-6 py-3 flex flex-col md:flex-row items-center justify-between gap-3 shadow-sm z-20">
+          <div className="flex items-center gap-3 w-full md:w-auto">
+            <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 bg-white rounded-lg border border-slate-200 text-medical-700 hover:bg-slate-100 transition-colors shadow-sm flex-shrink-0">
+              <Menu size={20}/>
+            </button>
+            {selectedPatient ? (
               <div className="overflow-hidden">
                 <h2 className="text-base lg:text-lg font-bold text-black leading-tight truncate uppercase">{safeString(selectedPatient.name)}</h2>
-                <div className="flex flex-wrap gap-x-4 text-[11px] font-medium text-slate-700 mt-1 uppercase">
+                <div className="flex flex-wrap gap-x-4 text-[11px] font-medium text-slate-700 mt-1 uppercase items-center">
                   <span className="text-medical-700 font-bold">LEITO: {safeString(selectedPatient.bedNumber)}</span>
                   <span>IDADE: {selectedPatient.age} ANOS</span>
-                  <span>PESO: {selectedPatient.estimatedWeight} KG</span>
+                  <span className="flex items-center gap-1.5 font-bold text-medical-800 bg-medical-50 px-2.5 py-1 rounded-lg border border-medical-200 shadow-sm">
+                    <Weight size={14} className="text-medical-600"/> {selectedPatient.estimatedWeight || '0'} KG
+                  </span>
                   <span>ADMISSÃO: {new Date(selectedPatient.admissionDate).toLocaleDateString('pt-BR')}</span>
                   <button onClick={() => { setEditingPatientId(selectedPatient.id); setNewPatientData({...selectedPatient}); setShowAddPatientModal(true); }} className="text-medical-600 underline font-bold uppercase text-[10px]">Alterar</button>
                 </div>
               </div>
+            ) : (
+              <div className="font-bold text-slate-400 uppercase text-xs tracking-widest">Painel CardioEDAD</div>
             )}
           </div>
           {selectedPatient && (
@@ -324,7 +355,7 @@ export default function App() {
         </header>
 
         {selectedPatient ? (
-          <div className="flex-1 overflow-y-auto p-4 lg:p-6 space-y-6 bg-white">
+          <div className="flex-1 overflow-y-auto p-4 lg:p-6 space-y-8 bg-white pb-20">
             
             {/* 1. Hipóteses Diagnósticas */}
             <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -365,7 +396,7 @@ export default function App() {
               )}
             </section>
 
-            {/* 2. Antecedentes & Medicações Habituais (Restaurado conforme solicitado) */}
+            {/* 2. Antecedentes & Medicações Habituais */}
             <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
               <div className="px-4 py-2 bg-slate-100 border-b flex items-center justify-between cursor-pointer" onClick={() => toggleSection('antecedents')}>
                 <h3 className="font-bold text-black text-[12px] uppercase tracking-wider flex items-center gap-2"><HeartPulse size={18} className="text-red-600"/> Antecedentes & Medicações Habituais</h3>
@@ -374,7 +405,7 @@ export default function App() {
               {!collapsedSections['antecedents'] && (
                 <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-3">
-                    <label className="text-[10px] font-bold text-slate-500 uppercase block tracking-widest border-b border-slate-50 mb-1">Passado Médico / Cirúrgico</label>
+                    <label className="text-[10px] font-bold text-slate-500 uppercase block tracking-widest border-b border-slate-50 mb-1">Histórico Patológico Pregressos</label>
                     <div className="flex flex-wrap gap-2">
                       {selectedPatient.personalHistory?.map((item, i) => (
                         <span key={i} className="bg-slate-50 text-black px-3 py-1 rounded border border-slate-200 font-medium text-[12px] flex items-center gap-2 uppercase">
@@ -388,7 +419,7 @@ export default function App() {
                     </div>
                   </div>
                   <div className="space-y-3">
-                    <label className="text-[10px] font-bold text-slate-500 uppercase block tracking-widest border-b border-slate-50 mb-1">Medicações Domiciliares</label>
+                    <label className="text-[10px] font-bold text-slate-500 uppercase block tracking-widest border-b border-slate-50 mb-1">Uso de Medicações Domiciliares</label>
                     <div className="flex flex-wrap gap-2">
                       {selectedPatient.homeMedications?.map((item, i) => (
                         <span key={i} className="bg-medical-50 text-medical-900 px-3 py-1 rounded border border-medical-100 font-medium text-[12px] flex items-center gap-2 uppercase">
@@ -405,7 +436,7 @@ export default function App() {
               )}
             </section>
 
-            {/* 3. Evolução Laboratorial (Movido para cima da UTI conforme solicitado) */}
+            {/* 3. Tabela Comparativa de Exames Laboratoriais */}
             <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
               <div className="px-4 py-2 bg-slate-100 border-b flex items-center justify-between cursor-pointer" onClick={() => toggleSection('labs')}>
                 <h3 className="font-bold text-black text-[12px] uppercase tracking-wider flex items-center gap-2"><Microscope size={18} className="text-indigo-600"/> Evolução Laboratorial</h3>
@@ -430,40 +461,18 @@ export default function App() {
               )}
             </section>
 
-            {/* 4. Prescrição Vigente */}
-            <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="px-4 py-2 bg-slate-100 border-b flex items-center justify-between cursor-pointer" onClick={() => toggleSection('rx')}>
-                <h3 className="font-bold text-black text-[12px] uppercase tracking-wider flex items-center gap-2"><Pill size={18} className="text-orange-600"/> Prescrição Vigente</h3>
-                <button onClick={(e) => { e.stopPropagation(); editingPrescription ? (updateICUParams({ medicalPrescription: tempPrescription }), setEditingPrescription(false)) : setEditingPrescription(true) }} className="text-[10px] font-bold uppercase text-medical-600 border border-medical-200 px-3 py-1 rounded-lg bg-white shadow-sm">{editingPrescription ? 'SALVAR' : 'EDITAR'}</button>
-              </div>
-              {!collapsedSections['rx'] && (
-                <div className="p-4">
-                  <div className="bg-slate-50 rounded-xl border border-slate-100 p-4 shadow-inner">
-                    {editingPrescription ? (
-                      <textarea className="w-full bg-white border border-slate-200 p-4 rounded-lg text-sm font-mono h-48 outline-none text-black leading-relaxed" value={tempPrescription} onChange={e => setTempPrescription(e.target.value)} placeholder="Edite a prescrição..." />
-                    ) : (
-                      <div className="text-[13px] text-black whitespace-pre-line leading-relaxed font-mono uppercase">
-                        {safeString(selectedPatient.medicalPrescription) || 'Nenhuma prescrição registrada.'}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </section>
-
-            {/* 5. Parâmetros UTI - Apenas UTI */}
+            {/* 4. Parâmetros UTI - Visível apenas se unit === 'UTI' */}
             {selectedPatient.unit === 'UTI' && (
               <section className="bg-slate-50 rounded-xl border border-medical-200 shadow-md overflow-hidden">
                 <div className="px-4 py-3 bg-medical-700 text-white flex items-center justify-between cursor-pointer" onClick={() => toggleSection('icu')}>
-                  <h3 className="font-bold text-[12px] uppercase tracking-widest flex items-center gap-2"><Gauge size={20}/> Parâmetros UTI</h3>
+                  <h3 className="font-bold text-[12px] uppercase tracking-widest flex items-center gap-2"><Gauge size={20}/> Parâmetros UTI (DVA & Ventilação)</h3>
                   {collapsedSections['icu'] ? <ChevronDown size={18}/> : <ChevronUp size={18}/>}
                 </div>
                 {!collapsedSections['icu'] && (
                   <div className="p-4 space-y-6">
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                      {/* Drogas Vasoativas */}
                       <div className="space-y-4">
-                        <h4 className="text-[11px] font-bold text-medical-800 uppercase flex items-center gap-2 border-b border-medical-100 pb-1"><Calculator size={16}/> Drogas Vasoativas & Sedação</h4>
+                        <h4 className="text-[11px] font-bold text-medical-800 uppercase flex items-center gap-2 border-b border-medical-100 pb-1"><Calculator size={16}/> Drogas Vasoativas</h4>
                         <div className="flex flex-wrap gap-1.5 mb-3">
                           {DRUG_PRESETS.map(preset => (
                             <button key={preset.id} onClick={() => handleDrugPresetClick(preset)} className={`px-3 py-1.5 rounded-full text-[10px] font-bold uppercase transition-all border ${doseCalc.drug === preset.name ? 'bg-medical-600 text-white border-medical-700 shadow-sm' : 'bg-white text-medical-700 border-medical-200 hover:bg-medical-50'}`}>{preset.name}</button>
@@ -472,8 +481,6 @@ export default function App() {
                         <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-4 shadow-sm">
                            <div className="grid grid-cols-2 gap-3">
                               <div className="col-span-2"><label className="text-[9px] font-bold text-slate-500 uppercase">Nome da Droga</label><input placeholder="Nome ou selecione..." className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-lg p-2 text-sm text-black" value={doseCalc.drug} onChange={e => setDoseCalc({...doseCalc, drug: e.target.value})}/></div>
-                              <div><label className="text-[9px] font-bold text-slate-500 uppercase">Massa ({doseCalc.unit})</label><input type="number" className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-lg p-2 text-sm text-black" value={doseCalc.mg} onChange={e => setDoseCalc({...doseCalc, mg: e.target.value})}/></div>
-                              <div><label className="text-[9px] font-bold text-slate-500 uppercase">Volume (ml)</label><input type="number" className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-lg p-2 text-sm text-black" value={doseCalc.ml} onChange={e => setDoseCalc({...doseCalc, ml: e.target.value})}/></div>
                               <div><label className="text-[9px] font-bold text-slate-500 uppercase">Vazão (ml/h)</label><input type="number" className="w-full mt-1 border-2 border-medical-200 rounded-lg p-2 text-sm text-black font-bold focus:border-medical-500 outline-none" value={doseCalc.rate} onChange={e => setDoseCalc({...doseCalc, rate: e.target.value})}/></div>
                               <div className="flex flex-col justify-end"><button onClick={calculateDose} className="w-full bg-medical-700 text-white p-2 rounded-lg text-[11px] font-bold uppercase shadow-sm flex items-center justify-center gap-2"><FlaskConical size={14}/> Calcular</button></div>
                            </div>
@@ -484,10 +491,9 @@ export default function App() {
                              </div>
                            )}
                         </div>
-                        <textarea className="w-full bg-white border border-slate-200 rounded-lg p-3 text-sm font-mono focus:border-medical-500 outline-none text-black leading-relaxed" rows={3} value={safeString(selectedPatient.vasoactiveDrugs)} onChange={e => updateICUParams({ vasoactiveDrugs: e.target.value })} />
+                        <textarea className="w-full bg-white border border-slate-200 rounded-lg p-3 text-sm font-mono focus:border-medical-500 outline-none text-black leading-relaxed" rows={3} value={safeString(selectedPatient.vasoactiveDrugs)} onChange={e => updateICUParams({ vasoactiveDrugs: e.target.value })} placeholder="Doses atuais e observações..." />
                       </div>
 
-                      {/* Suporte Ventilatório */}
                       <div className="space-y-4">
                         <h4 className="text-[11px] font-bold text-blue-800 uppercase flex items-center gap-2 border-b border-blue-100 pb-1"><Wind size={16}/> Suporte Ventilatório</h4>
                         <div className="grid grid-cols-2 gap-3">
@@ -500,49 +506,11 @@ export default function App() {
                               <option value="VM">VM (Invasiva)</option>
                             </select>
                           </div>
-
-                          {/* Modo VM (Invasiva) com campo Pressão */}
                           {selectedPatient.ventilation?.mode === 'VM' && (
                             <>
                               <div className="col-span-2"><label className="text-[10px] font-bold text-slate-500 uppercase">Sub-modo (VCV, PCV, PSV)</label><input type="text" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm uppercase text-black font-black" value={selectedPatient.ventilation?.subMode || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, subMode: e.target.value } as Ventilation })} placeholder="EX: PCV"/></div>
                               <div><label className="text-[10px] font-bold text-slate-500 uppercase">FiO2 (%)</label><input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.fio2 || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, fio2: e.target.value } as Ventilation })}/></div>
                               <div><label className="text-[10px] font-bold text-slate-500 uppercase">PEEP</label><input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.peep || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, peep: e.target.value } as Ventilation })}/></div>
-                              <div><label className="text-[10px] font-bold text-slate-500 uppercase">FR V.</label><input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.rate || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, rate: e.target.value } as Ventilation })}/></div>
-                              <div><label className="text-[10px] font-bold text-slate-500 uppercase">Volume (ml)</label><input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.volume || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, volume: e.target.value } as Ventilation })}/></div>
-                              <div className="col-span-2">
-                                <label className="text-[10px] font-bold text-slate-500 uppercase">Pressão (P. Insp / P. Suporte)</label>
-                                <input type="number" className="w-full mt-1 bg-white border-2 border-medical-100 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.pressure || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, pressure: e.target.value } as Ventilation })}/>
-                              </div>
-                              <div className="col-span-2 pt-2">
-                                <div className="bg-indigo-50 border border-indigo-200 p-2.5 rounded-xl shadow-sm flex items-center justify-between">
-                                  <div>
-                                    <p className="text-[9px] font-bold text-indigo-800 uppercase flex items-center gap-1"><Activity size={12}/> Relação P/F (Calculada)</p>
-                                    <p className={`text-lg font-black ${calculateRespIndices().pf && parseFloat(calculateRespIndices().pf!) > 300 ? 'text-green-600' : parseFloat(calculateRespIndices().pf!) > 200 ? 'text-orange-500' : 'text-red-600'}`}>
-                                      {calculateRespIndices().pf || '---'}
-                                    </p>
-                                  </div>
-                                  <div className="text-[10px] text-slate-500 font-medium italic text-right leading-tight">Baseado na última pO2 registrada<br/>na Evolução Laboratorial</div>
-                                </div>
-                              </div>
-                            </>
-                          )}
-
-                          {selectedPatient.ventilation?.mode === 'Cateter/CNAF' && (
-                            <>
-                              <div className="col-span-1"><label className="text-[10px] font-bold text-slate-500 uppercase">FiO2 (%)</label><input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.fio2 || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, fio2: e.target.value } as Ventilation })}/></div>
-                              <div className="col-span-1"><label className="text-[10px] font-bold text-slate-500 uppercase">Fluxo (L/min)</label><input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.flow || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, flow: e.target.value } as Ventilation })}/></div>
-                              <div className="col-span-2 grid grid-cols-2 gap-2 mt-2">
-                                 <div className="bg-blue-50 border border-blue-200 p-2.5 rounded-xl shadow-sm"><p className="text-[9px] font-bold text-blue-800 uppercase flex items-center gap-1"><AlertCircle size={12}/> Índice de ROX</p><p className={`text-lg font-black ${calculateRespIndices().rox && parseFloat(calculateRespIndices().rox!) > 4.88 ? 'text-green-600' : 'text-red-600'}`}>{calculateRespIndices().rox || '---'}</p></div>
-                                 <div className="bg-indigo-50 border border-indigo-200 p-2.5 rounded-xl shadow-sm"><p className="text-[9px] font-bold text-indigo-800 uppercase flex items-center gap-1"><Activity size={12}/> Relação P/F</p><p className={`text-lg font-black ${calculateRespIndices().pf && parseFloat(calculateRespIndices().pf!) > 300 ? 'text-green-600' : 'text-red-600'}`}>{calculateRespIndices().pf || '---'}</p></div>
-                              </div>
-                            </>
-                          )}
-
-                          {selectedPatient.ventilation?.mode === 'VNI' && (
-                            <>
-                              <div className="col-span-2"><label className="text-[10px] font-bold text-slate-500 uppercase">FiO2 (%)</label><input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.fio2 || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, fio2: e.target.value } as Ventilation })}/></div>
-                              <div><label className="text-[10px] font-bold text-slate-500 uppercase">EPAP (PEEP)</label><input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.peep || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, peep: e.target.value } as Ventilation })}/></div>
-                              <div><label className="text-[10px] font-bold text-slate-500 uppercase">IPAP (Pressão)</label><input type="number" className="w-full mt-1 bg-white border border-slate-200 rounded-lg p-2 text-sm text-black font-bold" value={selectedPatient.ventilation?.pressure || ''} onChange={e => updateICUParams({ ventilation: { ...selectedPatient.ventilation, pressure: e.target.value } as Ventilation })}/></div>
                             </>
                           )}
                         </div>
@@ -553,7 +521,7 @@ export default function App() {
               </section>
             )}
 
-            {/* 6. Invasões e Dispositivos (Movido para baixo da UTI conforme solicitado) */}
+            {/* 5. Invasões e Dispositivos */}
             <section className="bg-white rounded-xl border border-orange-200 shadow-sm overflow-hidden">
               <div className="px-4 py-2 bg-orange-50 border-b flex items-center justify-between cursor-pointer" onClick={() => toggleSection('devices')}>
                 <h3 className="font-bold text-black text-[12px] uppercase tracking-wider flex items-center gap-2"><Calendar size={18} className="text-orange-600"/> Invasões e Dispositivos</h3>
@@ -567,42 +535,23 @@ export default function App() {
                     <button onClick={() => { if (!newDeviceName) return; const newDev = { id: Date.now().toString(), name: newDeviceName, insertionDate: newDeviceDate }; updatePatientList('devices_list', newDev, 'add'); setNewDeviceName(''); }} className="bg-orange-600 text-white px-6 py-2 rounded-lg font-bold text-[11px] uppercase shadow-md flex items-center justify-center gap-2"><PlusCircle size={16}/> Adicionar</button>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {selectedPatient.devices_list && selectedPatient.devices_list.length > 0 ? (
-                      selectedPatient.devices_list.map((dev, i) => (
-                        <div key={dev.id} className="bg-white p-3 border border-slate-200 rounded-xl flex items-center justify-between group transition-all hover:border-orange-400 shadow-sm">
-                          {editingDeviceId === dev.id ? (
-                            <div className="flex-1 flex flex-col gap-1.5">
-                              <input className="w-full bg-slate-50 border border-orange-200 px-2 py-1 rounded text-[11px] font-bold text-black uppercase" value={dev.name} onChange={e => updatePatientList('devices_list', {...dev, name: e.target.value}, 'edit', i)}/>
-                              <div className="flex gap-1">
-                                <input type="date" className="flex-1 bg-slate-50 border border-orange-200 px-2 py-1 rounded text-[10px] text-black" value={dev.insertionDate} onChange={e => updatePatientList('devices_list', {...dev, insertionDate: e.target.value}, 'edit', i)}/>
-                                <button onClick={() => setEditingDeviceId(null)} className="bg-orange-600 text-white p-1 rounded"><Check size={14}/></button>
-                              </div>
-                            </div>
-                          ) : (
-                            <>
-                              <div className="flex-1 min-w-0">
-                                <p className="text-[12px] font-bold text-slate-800 truncate uppercase">{safeString(dev.name)}</p>
-                                <p className="text-[10px] text-slate-500 font-bold uppercase">Desde: {new Date(dev.insertionDate).toLocaleDateString('pt-BR')}</p>
-                              </div>
-                              <div className="flex items-center gap-1 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button onClick={() => setEditingDeviceId(dev.id)} className="p-1.5 text-slate-400 hover:text-medical-600"><Pencil size={14}/></button>
-                                <button onClick={() => updatePatientList('devices_list', null, 'remove', i)} className="p-1.5 text-slate-400 hover:text-red-600"><Trash2 size={14}/></button>
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      ))
-                    ) : (
-                      <div className="col-span-full text-center py-6 border border-dashed border-slate-300 rounded-xl text-slate-400 text-[11px] uppercase tracking-widest">Nenhum dispositivo registrado</div>
-                    )}
+                    {selectedPatient.devices_list?.map((dev, i) => (
+                      <div key={dev.id} className="bg-white p-3 border border-slate-200 rounded-xl flex items-center justify-between group shadow-sm">
+                         <div className="flex-1 min-w-0">
+                              <p className="text-[12px] font-bold text-slate-800 truncate uppercase">{safeString(dev.name)}</p>
+                              <p className="text-[10px] text-slate-500 font-bold uppercase">Desde: {new Date(dev.insertionDate).toLocaleDateString('pt-BR')}</p>
+                         </div>
+                         <button onClick={() => updatePatientList('devices_list', null, 'remove', i)} className="p-1.5 text-slate-300 hover:text-red-600"><Trash2 size={14}/></button>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
             </section>
-            
-            {/* 7. Histórico de Evoluções */}
+
+            {/* 6. Histórico de Evoluções */}
             <section className="space-y-3">
-              <h3 className="text-[12px] font-bold text-slate-700 uppercase flex items-center gap-2 ml-1 tracking-[0.2em]"><History size={20} className="text-medical-600"/> Histórico de Evoluções</h3>
+              <h3 className="text-[12px] font-bold text-slate-700 uppercase flex items-center gap-2 ml-1 tracking-[0.2em]"><History size={20} className="text-medical-600"/> Histórico de Evoluções Diárias</h3>
               {[...selectedPatient.dailyLogs].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(log => (
                 <div key={log.id} className="bg-white rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-medical-600 overflow-hidden">
                   <div className="px-4 py-3 bg-slate-50 flex justify-between items-center cursor-pointer" onClick={() => toggleLogSection(log.id)}>
@@ -612,41 +561,93 @@ export default function App() {
                     </div>
                     <div className="flex items-center gap-2">
                       <button onClick={(e) => { e.stopPropagation(); setEditingLog(log); setShowAddLogModal(true); }} className="p-2 text-slate-500 hover:text-medical-600"><Pencil size={18}/></button>
-                      <button onClick={(e) => { e.stopPropagation(); handleDeleteLog(log.id); }} className="p-2 text-slate-500 hover:text-red-600"><Trash2 size={18}/></button>
+                      <button onClick={(e) => { e.stopPropagation(); if(window.confirm('Excluir evolução?')) { PatientService.deleteDailyLog(log.id).then(() => loadPatients()); } }} className="p-2 text-slate-500 hover:text-red-600"><Trash2 size={18}/></button>
                       {collapsedLogs[log.id] ? <ChevronDown size={20}/> : <ChevronUp size={20}/>}
                     </div>
                   </div>
                   {!collapsedLogs[log.id] && (
-                    <div className="p-4 animate-in fade-in slide-in-from-top-1 duration-200">
-                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
-                        {['temperature', 'heartRate', 'respiratoryRate', 'bloodPressureSys', 'oxygenSaturation', 'capillaryBloodGlucose'].map(v => (
-                          <div key={v} className="bg-slate-50 p-2 rounded-lg border border-slate-100 text-center">
-                            <div className="text-[9px] text-slate-400 font-bold uppercase mb-0.5">{v.substring(0,4)}</div>
-                            <div className="font-bold text-black text-xs">{(log.vitalSigns as any)[v] || '-'}</div>
-                          </div>
-                        ))}
-                      </div>
+                    <div className="p-4 animate-in fade-in slide-in-from-top-1">
                       <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 shadow-inner">
-                         <p className="text-sm text-black whitespace-pre-wrap leading-relaxed">{safeString(log.notes) || 'Sem registro.'}</p>
+                         <p className="text-sm text-black whitespace-pre-wrap leading-relaxed uppercase">{safeString(log.notes) || 'Sem registro.'}</p>
                       </div>
                     </div>
                   )}
                 </div>
               ))}
             </section>
+
+            {/* 7. Anexos e Fotos */}
+            <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mt-6">
+              <div className="px-4 py-2 bg-slate-100 border-b flex items-center justify-between cursor-pointer" onClick={() => toggleSection('attachments')}>
+                <h3 className="font-bold text-black text-[12px] uppercase tracking-wider flex items-center gap-2"><ImageIcon size={18} className="text-medical-600"/> Anexos e Fotos Clínicas</h3>
+                <div className="flex items-center gap-4">
+                  <button onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }} className="text-[10px] font-bold uppercase text-medical-600 bg-white border border-medical-200 px-3 py-1 rounded-lg hover:bg-medical-50 transition-all shadow-sm flex items-center gap-1.5"><Upload size={14}/> Adicionar</button>
+                  {collapsedSections['attachments'] ? <ChevronDown size={18}/> : <ChevronUp size={18}/>}
+                </div>
+              </div>
+              <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileUpload} accept="image/*,.pdf,.doc,.docx" />
+              {!collapsedSections['attachments'] && (
+                <div className="p-4">
+                  {activeAttachments.length > 0 ? (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                      {activeAttachments.map((att) => (
+                        <div key={att.id} className="group relative aspect-square bg-slate-100 rounded-xl overflow-hidden border border-slate-200 shadow-sm hover:shadow-md transition-all cursor-pointer" onClick={() => setMaximizedAttachment(att)}>
+                          {att.type === 'image' ? (
+                            <img src={att.url} alt={att.name} className="w-full h-full object-cover transition-transform group-hover:scale-105" />
+                          ) : (
+                            <div className="w-full h-full flex flex-col items-center justify-center p-2 text-center gap-2">
+                              <FileText size={32} className="text-slate-400" />
+                              <span className="text-[10px] font-bold text-slate-600 truncate w-full uppercase px-2">{att.name}</span>
+                            </div>
+                          )}
+                          <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
+                             <div className="p-2 bg-white/20 rounded-full hover:bg-white/40 text-white"><Maximize2 size={20}/></div>
+                             <button onClick={(e) => handleInactivateAttachment(e, att.id)} className="p-2 bg-red-600/40 rounded-full hover:bg-red-600 text-white transition-colors"><EyeOff size={20}/></button>
+                          </div>
+                          <div className="absolute bottom-0 left-0 right-0 p-1 bg-black/60 text-white text-[8px] font-black truncate uppercase text-center">{att.name}</div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-slate-300 uppercase font-black tracking-widest text-[10px]">Nenhum anexo registrado</div>
+                  )}
+                </div>
+              )}
+            </section>
           </div>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-slate-300 opacity-30 uppercase font-black text-base tracking-[0.3em] bg-slate-50 text-center px-4">
              <Activity size={80} className="mb-4 text-medical-200" />
-             Selecione um paciente
+             Painel de Monitoramento CardioEDAD
           </div>
         )}
 
-        {/* Modais omitidos para brevidade, mas funcionais */}
+        {/* Modal de Maximização de Anexo */}
+        {maximizedAttachment && (
+          <div className="fixed inset-0 bg-black/90 z-[200] flex items-center justify-center p-4 backdrop-blur-md animate-in fade-in duration-300">
+            <button onClick={() => setMaximizedAttachment(null)} className="absolute top-6 right-6 text-white hover:text-red-500 transition-colors bg-white/10 p-2 rounded-full z-10"><X size={32}/></button>
+            <div className="w-full max-w-5xl max-h-full flex flex-col items-center gap-4">
+              {maximizedAttachment.type === 'image' ? (
+                <img src={maximizedAttachment.url} alt={maximizedAttachment.name} className="max-w-full max-h-[85vh] object-contain shadow-2xl rounded-lg" />
+              ) : (
+                <div className="bg-white p-12 rounded-3xl flex flex-col items-center gap-6 shadow-2xl">
+                   <FileText size={80} className="text-medical-600" />
+                   <p className="text-lg font-black uppercase text-slate-800">{maximizedAttachment.name}</p>
+                   <a href={maximizedAttachment.url} download={maximizedAttachment.name} className="bg-medical-600 text-white px-8 py-3 rounded-xl font-bold uppercase shadow-xl flex items-center gap-2"><Download size={20}/> Baixar Arquivo</a>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Modal de Cadastro de Paciente */}
         {showAddPatientModal && (
           <div className="fixed inset-0 bg-slate-900/80 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-200 text-black">
-              <div className="bg-slate-800 p-4 text-white flex justify-between items-center"><h3 className="font-bold text-sm uppercase tracking-wider">{editingPatientId ? 'Editar' : 'Novo'} Cadastro</h3><button onClick={() => setShowAddPatientModal(false)} className="p-1"><X size={28}/></button></div>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-200 text-black animate-in zoom-in-95 duration-200">
+              <div className="bg-slate-800 p-4 text-white flex justify-between items-center">
+                <h3 className="font-bold text-sm uppercase tracking-wider flex items-center gap-2"><UserPlus size={18} className="text-medical-400"/> {editingPatientId ? 'Editar' : 'Novo'} Cadastro</h3>
+                <button onClick={() => setShowAddPatientModal(false)} className="p-1 hover:bg-slate-700 rounded-lg transition-colors"><X size={24}/></button>
+              </div>
               <form onSubmit={handleSavePatient} className="p-6 space-y-5">
                 <div className="space-y-1.5"><label className="text-xs font-bold text-slate-600 uppercase">Nome Completo</label><input required className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-base outline-none text-black uppercase" value={newPatientData.name} onChange={e => setNewPatientData({...newPatientData, name: e.target.value})} /></div>
                 <div className="grid grid-cols-2 gap-4">
@@ -657,31 +658,69 @@ export default function App() {
                   <div className="space-y-1.5"><label className="text-xs font-bold text-slate-600 uppercase">Unidade</label><select className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-base text-black font-bold" value={newPatientData.unit} onChange={e => setNewPatientData({...newPatientData, unit: e.target.value as any})}><option value="UTI">UTI</option><option value="Enfermaria">Enfermaria</option></select></div>
                   <div className="space-y-1.5"><label className="text-xs font-bold text-slate-600 uppercase">Peso Est. (kg)</label><input type="number" step="0.1" className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-base text-black" value={newPatientData.estimatedWeight || ''} onChange={e => setNewPatientData({...newPatientData, estimatedWeight: parseFloat(e.target.value) || 0})} /></div>
                 </div>
+                <div className="space-y-1.5"><label className="text-xs font-bold text-slate-600 uppercase">Data de Admissão</label><input required type="date" className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-base text-black" value={newPatientData.admissionDate} onChange={e => setNewPatientData({...newPatientData, admissionDate: e.target.value})} /></div>
                 <button type="submit" className="w-full bg-medical-600 text-white p-4 rounded-xl font-bold text-base uppercase shadow-lg">Salvar Cadastro</button>
               </form>
             </div>
           </div>
         )}
 
-        {showAddLogModal && (
-          <div className="fixed inset-0 bg-slate-900/80 z-[100] flex items-center justify-center p-2 backdrop-blur-sm">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[96vh] overflow-hidden flex flex-col border border-slate-200 text-black">
-              <div className="bg-slate-900 p-3 text-white flex justify-between items-center"><h3 className="font-bold text-sm uppercase flex items-center gap-3 px-4 tracking-widest"><ClipboardList size={24} className="text-medical-500"/> Registro Clínico Diário</h3><button onClick={() => setShowAddLogModal(false)} className="p-2 rounded-xl transition-colors"><X size={32}/></button></div>
-              <div className="p-6 overflow-y-auto bg-white"><DailyLogForm initialData={editingLog || undefined} initialPrescriptions={selectedPatient?.medicalPrescription?.split('\n').filter(p => p.trim())} onSave={handleSaveLog} onCancel={() => setShowAddLogModal(false)} patientUnit={selectedPatient?.unit} /></div>
+        {/* Modal de Transferência */}
+        {showTransferModal && selectedPatient && (
+          <div className="fixed inset-0 bg-slate-900/80 z-[100] flex items-center justify-center p-4 backdrop-blur-md">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xs p-6 space-y-5 text-center text-black">
+              <h3 className="font-bold text-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 mb-4"><ArrowRightLeft size={20} className="text-medical-600"/> Alterar Status/Setor</h3>
+              <div className="grid gap-2.5">
+                {['UTI', 'Enfermaria', 'Finalizados'].map(t => (
+                  <button key={t} onClick={() => setTransferTarget(t)} className={`p-3 border-2 rounded-xl text-center text-sm font-bold transition-all ${transferTarget === t ? 'border-medical-600 bg-medical-50 text-medical-800 shadow-md' : 'border-slate-100 text-slate-500'}`}>{t}</button>
+                ))}
+              </div>
+              <button onClick={handleConfirmTransfer} className="w-full bg-medical-600 text-white p-4 rounded-xl font-bold uppercase shadow-lg hover:bg-medical-700 transition-colors">Confirmar</button>
+              <button onClick={() => setShowTransferModal(false)} className="text-[10px] text-slate-400 font-bold uppercase py-2">Cancelar</button>
             </div>
           </div>
         )}
 
-        {showTransferModal && selectedPatient && (
+        {/* Modal de Finalizados (Histórico) */}
+        {showFinalizedListModal && (
           <div className="fixed inset-0 bg-slate-900/80 z-[100] flex items-center justify-center p-4 backdrop-blur-md">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xs p-6 space-y-5 text-center text-black">
-              <h3 className="font-bold text-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 mb-4"><ArrowRightLeft size={20} className="text-medical-600"/> Mudar Setor / Status</h3>
-              <div className="grid gap-2.5">
-                {['UTI', 'Enfermaria', 'Finalizados', 'Arquivo Morto'].map(t => (
-                  <button key={t} onClick={() => setTransferTarget(t)} className={`p-3 border-2 rounded-xl text-center text-sm font-bold transition-all ${transferTarget === t ? 'border-medical-600 bg-medical-50 text-medical-800 shadow-md' : 'border-slate-100 text-slate-500'}`}>{t}</button>
-                ))}
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col border border-slate-200 text-black">
+              <div className="bg-slate-900 p-4 text-white flex justify-between items-center">
+                <h3 className="font-bold text-sm uppercase tracking-widest flex items-center gap-3"><ArchiveRestore size={22} className="text-medical-400"/> Pacientes Finalizados</h3>
+                <button onClick={() => setShowFinalizedListModal(false)}><X size={28}/></button>
               </div>
-              <button onClick={async () => { try { await PatientService.updatePatient(selectedPatientId!, { unit: transferTarget as any }); await loadPatients(); setShowTransferModal(false); } catch (err) { alert(`Erro: ${stringifyError(err)}`); } }} className="w-full bg-medical-600 text-white p-4 rounded-xl font-bold uppercase shadow-lg">Confirmar</button>
+              <div className="flex-1 overflow-y-auto p-6">
+                {finalizedPatients.length > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {finalizedPatients.map(p => (
+                      <div key={p.id} className="bg-slate-50 border border-slate-200 rounded-2xl p-4 shadow-sm hover:shadow-md transition-all">
+                        <div className="flex justify-between items-start mb-3">
+                          <div>
+                            <h4 className="font-bold text-black uppercase text-[12px] leading-tight">{safeString(p.name)}</h4>
+                            <p className="text-[10px] text-slate-500 font-bold uppercase mt-1">Leito: {safeString(p.bedNumber)}</p>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button onClick={() => PatientService.updatePatient(p.id, { status: 'active', unit: 'UTI' }).then(() => loadPatients())} className="flex-1 bg-medical-600 text-white text-[9px] font-black p-2 rounded-lg hover:bg-medical-700 uppercase transition-all">Reabrir UTI</button>
+                          <button onClick={() => PatientService.updatePatient(p.id, { status: 'active', unit: 'Enfermaria' }).then(() => loadPatients())} className="flex-1 border border-medical-600 text-medical-600 text-[9px] font-black p-2 rounded-lg hover:bg-medical-50 uppercase transition-all">Reabrir Enf.</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-20 text-slate-300 uppercase font-black tracking-widest text-sm italic">Histórico vazio</div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal de Nova Evolução */}
+        {showAddLogModal && (
+          <div className="fixed inset-0 bg-slate-900/80 z-[100] flex items-center justify-center p-2 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[96vh] overflow-hidden flex flex-col border border-slate-200 text-black">
+              <div className="bg-slate-900 p-3 text-white flex justify-between items-center"><h3 className="font-bold text-sm uppercase flex items-center gap-3 px-4 tracking-widest"><ClipboardList size={24} className="text-medical-500"/> Registro Diário</h3><button onClick={() => setShowAddLogModal(false)} className="p-2 rounded-xl"><X size={32}/></button></div>
+              <div className="p-6 overflow-y-auto bg-white"><DailyLogForm initialData={editingLog || undefined} initialPrescriptions={selectedPatient?.medicalPrescription?.split('\n').filter(p => p.trim())} onSave={handleSaveLog} onCancel={() => setShowAddLogModal(false)} patientUnit={selectedPatient?.unit} /></div>
             </div>
           </div>
         )}

@@ -61,6 +61,7 @@ export interface Attachment {
   type: 'image' | 'file';
   url: string; 
   date: string;
+  status: 'active' | 'inactive';
 }
 
 export interface Patient {
