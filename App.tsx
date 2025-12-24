@@ -3,9 +3,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Activity, BrainCircuit, PlusCircle, ChevronDown, ChevronUp, Menu, X, 
   ClipboardList, History, Pencil, Check, Trash2, 
-  UserPlus, Printer, ArrowRightLeft, Pill, Microscope, HeartPulse, LogOut, Wind, Gauge, Calculator, Calendar, FlaskConical, AlertCircle, ArchiveRestore, Archive, FileText, Image as ImageIcon, Maximize2, Upload, Download, Weight
+  UserPlus, Printer, ArrowRightLeft, Pill, Microscope, HeartPulse, LogOut, Wind, Gauge, Calculator, Calendar, FlaskConical, AlertCircle, ArchiveRestore, Archive, FileText, Image as ImageIcon, Maximize2, Upload, Download, Weight, User, CheckSquare, Square, RefreshCw
 } from 'lucide-react';
-import { Patient, DailyLog, Device, Ventilation, Attachment } from './types';
+import { Patient, DailyLog, Device, Ventilation, Attachment, Conduct } from './types';
 import DailyLogForm from './components/DailyLogForm';
 import LabResultTable from './components/LabResultTable';
 import { PatientPrintView, PatientListPrintView } from './components/PrintViews';
@@ -20,8 +20,12 @@ const safeString = (val: any): string => {
 const stringifyError = (err: any): string => {
   if (!err) return 'Erro desconhecido';
   if (typeof err === 'string') return err;
-  if (err.message) return err.message;
-  return JSON.stringify(err);
+  if (err.message && typeof err.message === 'string') return err.message;
+  try {
+    return JSON.stringify(err);
+  } catch (e) {
+    return 'Erro de sistema (objeto não serializável)';
+  }
 };
 
 const INITIAL_NEW_PATIENT_STATE: Omit<Patient, 'id' | 'dailyLogs' | 'attachments'> = {
@@ -127,6 +131,7 @@ export default function App() {
 
   const handleSavePatient = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsLoading(true);
     try {
       if (editingPatientId) {
         await PatientService.updatePatient(editingPatientId, newPatientData);
@@ -139,7 +144,10 @@ export default function App() {
       setEditingPatientId(null);
       setNewPatientData(INITIAL_NEW_PATIENT_STATE);
     } catch (err: any) {
-      alert(`Erro: ${stringifyError(err)}`);
+      const msg = stringifyError(err);
+      alert(`Erro no Cadastro: ${msg}`);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -147,9 +155,37 @@ export default function App() {
     if (!selectedPatientId) return;
     try {
       await PatientService.upsertDailyLog(selectedPatientId, { id: editingLog?.id || 'new', ...logData } as any);
-      await loadPatients(); setShowAddLogModal(false); setEditingLog(null);
+      
+      // Sincronização Bidirecional: Registro Diário -> Prescrição Geral
+      const newPrescriptionText = (logData.prescriptions || []).join('\n');
+      await PatientService.updatePatient(selectedPatientId, { medicalPrescription: newPrescriptionText });
+
+      await loadPatients(); 
+      setShowAddLogModal(false); 
+      setEditingLog(null);
     } catch (err: any) { 
       alert(`Erro ao salvar registro clínico: ${stringifyError(err)}`); 
+    }
+  };
+
+  const handleUpdateGeneralPrescription = async (newText: string) => {
+    if (!selectedPatientId || !selectedPatient) return;
+    
+    // Atualiza localmente imediato
+    setPatients(prev => prev.map(p => p.id === selectedPatientId ? { ...p, medicalPrescription: newText } : p));
+    
+    try {
+      await PatientService.updatePatient(selectedPatientId, { medicalPrescription: newText });
+
+      const logs = [...selectedPatient.dailyLogs].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      if (logs.length > 0) {
+        const lastLog = logs[0];
+        const newPrescriptionArray = newText.split('\n').map(l => l.trim()).filter(l => l !== '');
+        await PatientService.upsertDailyLog(selectedPatientId, { ...lastLog, prescriptions: newPrescriptionArray } as any);
+      }
+    } catch (err) {
+      alert(`Erro ao sincronizar prescrição: ${stringifyError(err)}`);
+      loadPatients();
     }
   };
 
@@ -179,6 +215,31 @@ export default function App() {
       alert(`Erro ao sincronizar parâmetros: ${stringifyError(err)}`); 
       loadPatients();
     }
+  };
+
+  const handleToggleConductVerify = async (logId: string, conductIndex: number) => {
+    if (!selectedPatient) return;
+    const log = selectedPatient.dailyLogs.find(l => l.id === logId);
+    if (!log) return;
+    
+    const newConducts = [...log.conducts];
+    newConducts[conductIndex] = { ...newConducts[conductIndex], verified: !newConducts[conductIndex].verified };
+    
+    try {
+      await PatientService.upsertDailyLog(selectedPatient.id, { ...log, conducts: newConducts } as any);
+      await loadPatients();
+    } catch (err) {
+      alert(`Erro ao atualizar pendência: ${stringifyError(err)}`);
+    }
+  };
+
+  const getPendingConducts = () => {
+    if (!selectedPatient) return [];
+    return selectedPatient.dailyLogs.flatMap(log => 
+      log.conducts
+        .map((c, idx) => ({ ...c, logId: log.id, index: idx, date: log.date }))
+        .filter(c => !c.verified)
+    ).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   };
 
   const handleVentilationModeChange = async (mode: Ventilation['mode']) => {
@@ -217,12 +278,8 @@ export default function App() {
   const handleConfirmTransfer = async () => {
     if (!selectedPatientId) return;
     const updates: Partial<Patient> = {};
-    if (transferTarget === 'Finalizados') {
-      updates.status = 'completed';
-    } else {
-      updates.unit = transferTarget as any;
-      updates.status = 'active';
-    }
+    if (transferTarget === 'Finalizados') updates.status = 'completed';
+    else { updates.unit = transferTarget as any; updates.status = 'active'; }
 
     setPatients(prev => prev.map(p => p.id === selectedPatientId ? { ...p, ...updates } : p));
     if (transferTarget === 'Finalizados') setSelectedPatientId(null);
@@ -260,12 +317,7 @@ export default function App() {
   const handleRemoveAttachment = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     if (!window.confirm('Excluir este anexo permanentemente?')) return;
-    
-    setPatients(prev => prev.map(p => ({
-      ...p,
-      attachments: p.attachments?.filter(a => a.id !== id) || []
-    })));
-
+    setPatients(prev => prev.map(p => ({ ...p, attachments: p.attachments?.filter(a => a.id !== id) || [] })));
     try {
       await PatientService.deleteAttachment(id);
       await loadPatients();
@@ -290,9 +342,10 @@ export default function App() {
     );
   }
 
+  const pendingConductsList = getPendingConducts();
+
   return (
     <div className="flex h-screen bg-white overflow-hidden font-sans text-[13px] lg:text-[15px] text-black">
-      {/* Sidebar lateral */}
       <aside className={`fixed inset-y-0 left-0 z-40 lg:static transition-all duration-300 transform ${isSidebarOpen ? 'translate-x-0 w-64 lg:w-72' : '-translate-x-full lg:w-0 lg:overflow-hidden'} bg-slate-900 text-white flex flex-col shadow-xl border-r border-slate-700`}>
         <div className="p-4 border-b border-slate-700 flex items-center justify-between">
           <div className="flex items-center gap-2"><Activity className="text-medical-400" size={20} /><h1 className="font-bold text-base lg:text-lg tracking-tight">CardioEDAD</h1></div>
@@ -325,48 +378,74 @@ export default function App() {
       </aside>
 
       <main className="flex-1 flex flex-col overflow-hidden bg-white">
-        <header className="bg-slate-50 border-b px-4 lg:px-6 py-3 flex flex-col md:flex-row items-center justify-between gap-3 shadow-sm z-20">
+        <header className="bg-slate-50 border-b px-4 lg:px-6 py-2.5 flex flex-col md:flex-row items-center justify-between gap-3 shadow-sm z-30">
           <div className="flex items-center gap-3 w-full md:w-auto">
-            <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 bg-white rounded-lg border border-slate-200 text-medical-700 hover:bg-slate-100 transition-colors shadow-sm flex-shrink-0">
+            <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 bg-white rounded-lg border border-slate-200 text-medical-700 hover:bg-slate-100 transition-all shadow-sm flex-shrink-0">
               <Menu size={20}/>
             </button>
             {selectedPatient ? (
               <div className="overflow-hidden">
-                <h2 className="text-base lg:text-lg font-bold text-black leading-tight truncate uppercase">{safeString(selectedPatient.name)}</h2>
-                <div className="flex flex-wrap gap-x-4 text-[11px] font-medium text-slate-700 mt-1 uppercase items-center">
-                  <span className="text-white bg-medical-700 px-2 py-1 rounded-md font-bold shadow-sm">LEITO: {safeString(selectedPatient.bedNumber)}</span>
-                  <span className="flex items-center gap-1 font-bold"><Activity size={14} className="text-slate-400"/> {selectedPatient.age} ANOS</span>
-                  
-                  <span className="flex items-center gap-1">
-                    <Calendar size={13} className="text-slate-400"/>
-                    ADM: {new Date(selectedPatient.admissionDate).toLocaleDateString('pt-BR')}
+                <h2 className="text-base lg:text-lg font-medium text-slate-900 leading-tight truncate uppercase tracking-tight">{safeString(selectedPatient.name)}</h2>
+                <div className="flex flex-wrap gap-x-3 gap-y-1.5 text-[10px] lg:text-[11px] font-normal text-slate-600 mt-1 uppercase items-center">
+                  <span className="text-white bg-medical-700 px-2 py-1 rounded-md shadow-sm flex items-center gap-1.5 border border-medical-800">
+                     <span className="text-[8px] font-bold opacity-70">LEITO</span> 
+                     <span className="text-[12px] font-medium">{safeString(selectedPatient.bedNumber)}</span>
                   </span>
-
-                  <span className="flex items-center gap-1.5 font-bold text-medical-800 bg-medical-50 px-2.5 py-1 rounded-lg border border-medical-200 shadow-sm">
-                    <Weight size={14} className="text-medical-600"/> {selectedPatient.estimatedWeight || '0'} KG
+                  <span className="flex items-center gap-1 bg-white px-2 py-1 rounded-md border border-slate-200 shadow-sm">
+                    <User size={13} className="text-medical-600"/> 
+                    {selectedPatient.age} ANOS
                   </span>
-
-                  <span className="bg-slate-200 px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-tighter">{selectedPatient.unit}</span>
-                  
-                  <button onClick={() => { setEditingPatientId(selectedPatient.id); setNewPatientData({...selectedPatient}); setShowAddPatientModal(true); }} className="text-medical-600 underline font-bold uppercase text-[10px] hover:text-medical-800">Alterar</button>
+                  <span className="flex items-center gap-1 bg-white px-2 py-1 rounded-md border border-slate-200 shadow-sm">
+                    <Calendar size={13} className="text-orange-600"/> 
+                    <span className="text-[9px] opacity-60 mr-0.5">ADM:</span> 
+                    {new Date(selectedPatient.admissionDate).toLocaleDateString('pt-BR')}
+                  </span>
+                  <span className="flex items-center gap-1.5 font-medium text-emerald-900 bg-emerald-50 px-2 py-1 rounded-md border border-emerald-200 shadow-sm">
+                    <Weight size={14} className="text-emerald-600"/> 
+                    <span className="text-[12px]">{selectedPatient.estimatedWeight || '0'}</span> KG
+                  </span>
+                  <span className="bg-slate-800 text-white px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-tighter">{selectedPatient.unit}</span>
+                  <button onClick={() => { setEditingPatientId(selectedPatient.id); setNewPatientData({...selectedPatient}); setShowAddPatientModal(true); }} className="ml-1 text-medical-600 hover:text-medical-800 transition-colors flex items-center gap-1">
+                    <Pencil size={11}/> <span className="underline">ALTERAR</span>
+                  </button>
                 </div>
               </div>
             ) : (
-              <div className="font-bold text-slate-400 uppercase text-xs tracking-widest">Painel CardioEDAD</div>
+              <div className="font-medium text-slate-400 uppercase text-xs tracking-widest flex items-center gap-2">
+                <Activity size={18}/> CardioEDAD Monitor
+              </div>
             )}
           </div>
           {selectedPatient && (
             <div className="flex gap-2 w-full md:w-auto">
-              <button onClick={() => setShowPrintPreview(true)} className="p-2 border border-slate-300 rounded-lg bg-white hover:bg-slate-50"><Printer size={18} /></button>
-              <button onClick={() => setShowTransferModal(true)} className="flex-1 md:flex-none border border-slate-300 bg-white px-3 py-1.5 rounded-lg text-[10px] font-bold text-slate-900 uppercase hover:bg-slate-50">Status</button>
-              <button onClick={() => { setEditingLog(null); setShowAddLogModal(true); }} className="flex-1 md:flex-none bg-medical-600 text-white px-4 py-1.5 rounded-lg text-[10px] font-bold shadow-md uppercase hover:bg-medical-700">Evolução</button>
+              <button onClick={() => setShowPrintPreview(true)} className="p-2 border border-slate-300 rounded-lg bg-white hover:bg-slate-50 transition-all shadow-sm"><Printer size={18} /></button>
+              <button onClick={() => setShowTransferModal(true)} className="flex-1 md:flex-none border border-slate-300 bg-white px-3 py-1.5 rounded-lg text-[9px] font-bold text-slate-900 uppercase hover:bg-slate-50 transition-all shadow-sm">Status</button>
+              <button onClick={() => { setEditingLog(null); setShowAddLogModal(true); }} className="flex-1 md:flex-none bg-medical-600 text-white px-4 py-1.5 rounded-lg text-[9px] font-bold shadow-md uppercase hover:bg-medical-700 transition-all">Evolução</button>
             </div>
           )}
         </header>
 
+        {/* PENDÊNCIAS GLOBAIS - FIXO ABAIXO DO HEADER */}
+        {selectedPatient && pendingConductsList.length > 0 && (
+          <div className="bg-orange-50 border-b border-orange-200 px-4 lg:px-6 py-2 shadow-inner z-20 flex flex-col gap-2">
+             <div className="flex items-center gap-2">
+                <AlertCircle size={14} className="text-orange-600" />
+                <h3 className="text-[10px] font-black uppercase tracking-widest text-orange-800">Pendências e Condutas Ativas</h3>
+             </div>
+             <div className="flex flex-wrap gap-2">
+                {pendingConductsList.map((pending, i) => (
+                  <div key={i} className="flex items-center gap-2 bg-white px-3 py-1 rounded-lg border border-orange-200 shadow-sm text-[11px] font-medium hover:border-orange-400 transition-all cursor-default group">
+                    <button onClick={() => handleToggleConductVerify(pending.logId, pending.index)} className="text-slate-300 hover:text-emerald-600 transition-colors"><Square size={14}/></button>
+                    <span className="text-slate-800 uppercase leading-none">{safeString(pending.description)}</span>
+                    <span className="text-[8px] text-slate-400 font-bold ml-1">{new Date(pending.date).toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit'})}</span>
+                  </div>
+                ))}
+             </div>
+          </div>
+        )}
+
         {selectedPatient ? (
           <div className="flex-1 flex flex-col overflow-hidden">
-            {/* Sistema de Abas */}
             <div className="flex overflow-x-auto bg-slate-50 border-b border-slate-200 px-4">
                {['Resumo', 'Laboratório', 'UTI', 'Evoluções', 'Anexos'].map((tab) => {
                  if (tab === 'UTI' && selectedPatient.unit !== 'UTI') return null;
@@ -383,10 +462,9 @@ export default function App() {
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 lg:p-6 bg-white pb-20">
-              
-              {/* ABA: RESUMO */}
               {activePatientTab === 'Resumo' && (
                 <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
+                   {/* 1. HIPÓTESES DIAGNÓSTICAS */}
                    <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                     <div className="px-4 py-2 bg-slate-100 border-b">
                       <h3 className="font-bold text-black text-[12px] uppercase tracking-wider flex items-center gap-2"><BrainCircuit size={18} className="text-medical-600"/> Hipóteses Diagnósticas</h3>
@@ -422,6 +500,7 @@ export default function App() {
                     </div>
                    </section>
 
+                   {/* 2. ANTECEDENTES & MEDICAÇÕES HABITUAIS */}
                    <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                     <div className="px-4 py-2 bg-slate-100 border-b">
                       <h3 className="font-bold text-black text-[12px] uppercase tracking-wider flex items-center gap-2"><HeartPulse size={18} className="text-red-600"/> Antecedentes & Medicações Habituais</h3>
@@ -457,10 +536,28 @@ export default function App() {
                       </div>
                     </div>
                    </section>
+
+                   {/* 3. PRESCRIÇÃO MÉDICA ATUAL */}
+                   <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="px-4 py-2 bg-blue-50 border-b flex items-center justify-between">
+                      <h3 className="font-bold text-black text-[12px] uppercase tracking-wider flex items-center gap-2"><ClipboardList size={18} className="text-blue-600"/> Prescrição Médica Atual</h3>
+                      <div className="flex items-center gap-2 text-[10px] font-bold text-blue-400 uppercase tracking-tighter italic">
+                         <RefreshCw size={12} className="animate-spin-slow" /> Sincronizada com Última Evolução
+                      </div>
+                    </div>
+                    <div className="p-4">
+                      <textarea 
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 text-sm font-mono focus:border-blue-500 outline-none text-black leading-relaxed" 
+                        rows={12} 
+                        value={safeString(selectedPatient.medicalPrescription)} 
+                        onChange={e => handleUpdateGeneralPrescription(e.target.value)} 
+                        placeholder="Insira a prescrição completa aqui. Mudanças refletem na evolução diária..."
+                      />
+                    </div>
+                   </section>
                 </div>
               )}
 
-              {/* ABA: LABORATÓRIO */}
               {activePatientTab === 'Laboratório' && (
                 <section className="bg-white animate-in fade-in zoom-in-95 duration-200">
                   <div className="mb-4">
@@ -472,17 +569,25 @@ export default function App() {
                         const idx = newLabs.findIndex(l => l.testName === test);
                         if (idx >= 0) newLabs[idx] = { ...newLabs[idx], value: val };
                         else newLabs.push({ testName: test, value: val, unit: '', referenceRange: '' });
+                        
+                        // Otimismo UI
+                        setPatients(prev => prev.map(p => p.id === selectedPatient.id ? {
+                          ...p, dailyLogs: p.dailyLogs.map(l => l.id === logId ? { ...l, labs: newLabs } : l)
+                        } : p));
+
                         try {
                           await PatientService.upsertDailyLog(selectedPatient.id, { ...log, labs: newLabs } as any);
-                          await loadPatients();
-                        } catch (err) { alert(`Erro: ${stringifyError(err)}`); }
+                          // Não chamamos loadPatients aqui para não resetar o estado da tabela durante edição
+                        } catch (err) { 
+                          alert(`Erro ao salvar exame: ${stringifyError(err)}`); 
+                          loadPatients();
+                        }
                       }
                     }} />
                   </div>
                 </section>
               )}
 
-              {/* ABA: UTI */}
               {activePatientTab === 'UTI' && selectedPatient.unit === 'UTI' && (
                 <div className="space-y-6 animate-in fade-in slide-in-from-right-4">
                    <section className="bg-slate-50 rounded-xl border border-medical-200 shadow-sm overflow-hidden">
@@ -500,7 +605,7 @@ export default function App() {
                           </div>
                           <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-4 shadow-sm">
                              <div className="grid grid-cols-2 gap-3">
-                                <div className="col-span-2"><label className="text-[9px] font-bold text-slate-500 uppercase">Nome da Droga</label><input placeholder="Nome ou selecione..." className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-lg p-2 text-sm text-black" value={doseCalc.drug} onChange={e => setDoseCalc({...doseCalc, drug: e.target.value})}/></div>
+                                <div className="col-span-2"><label className="text-[9px] font-bold text-slate-500 uppercase">Nome da Droga</label><input placeholder="Nome ou selecione..." className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-lg p-2 text-sm text-black uppercase" value={doseCalc.drug} onChange={e => setDoseCalc({...doseCalc, drug: e.target.value})}/></div>
                                 <div><label className="text-[9px] font-bold text-slate-500 uppercase">Vazão (ml/h)</label><input type="number" className="w-full mt-1 border-2 border-medical-200 rounded-lg p-2 text-sm text-black font-bold focus:border-medical-500 outline-none" value={doseCalc.rate} onChange={e => setDoseCalc({...doseCalc, rate: e.target.value})}/></div>
                                 <div className="flex flex-col justify-end"><button onClick={calculateDose} className="w-full bg-medical-700 text-white p-2 rounded-lg text-[11px] font-bold uppercase shadow-sm flex items-center justify-center gap-2"><FlaskConical size={14}/> Calcular</button></div>
                              </div>
@@ -565,7 +670,6 @@ export default function App() {
                 </div>
               )}
 
-              {/* ABA: EVOLUÇÕES */}
               {activePatientTab === 'Evoluções' && (
                 <section className="space-y-3 animate-in fade-in slide-in-from-bottom-4">
                   <h3 className="text-[12px] font-bold text-slate-700 uppercase flex items-center gap-2 ml-1 tracking-[0.2em] mb-4"><History size={20} className="text-medical-600"/> Histórico Cronológico de Evoluções</h3>
@@ -594,7 +698,6 @@ export default function App() {
                 </section>
               )}
 
-              {/* ABA: ANEXOS */}
               {activePatientTab === 'Anexos' && (
                 <section className="bg-white animate-in fade-in zoom-in-95 duration-200">
                   <div className="flex items-center justify-between mb-6">
@@ -640,24 +743,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Modais omitidos para brevidade - mantidos conforme lógica anterior */}
-        {maximizedAttachment && (
-          <div className="fixed inset-0 bg-black/95 z-[200] flex items-center justify-center p-4 backdrop-blur-md animate-in fade-in duration-300">
-            <button onClick={() => setMaximizedAttachment(null)} className="absolute top-6 right-6 text-white hover:text-red-500 transition-colors bg-white/10 p-2 rounded-full z-10"><X size={32}/></button>
-            <div className="w-full max-w-5xl max-h-full flex flex-col items-center gap-4">
-              {maximizedAttachment.type === 'image' ? (
-                <img src={maximizedAttachment.url} alt={maximizedAttachment.name} className="max-w-full max-h-[85vh] object-contain shadow-2xl rounded-lg border border-white/10" />
-              ) : (
-                <div className="bg-white p-12 rounded-3xl flex flex-col items-center gap-6 shadow-2xl">
-                   <FileText size={80} className="text-medical-600" />
-                   <p className="text-lg font-black uppercase text-slate-800">{maximizedAttachment.name}</p>
-                   <a href={maximizedAttachment.url} download={maximizedAttachment.name} className="bg-medical-600 text-white px-8 py-3 rounded-xl font-bold uppercase shadow-xl flex items-center gap-2"><Download size={20}/> Baixar Arquivo</a>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
         {showAddPatientModal && (
           <div className="fixed inset-0 bg-slate-900/80 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-200 text-black animate-in zoom-in-95 duration-200">
@@ -676,8 +761,87 @@ export default function App() {
                   <div className="space-y-1.5"><label className="text-xs font-bold text-slate-600 uppercase">Peso Est. (kg)</label><input type="number" step="0.1" className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-base text-black" value={newPatientData.estimatedWeight || ''} onChange={e => setNewPatientData({...newPatientData, estimatedWeight: parseFloat(e.target.value) || 0})} /></div>
                 </div>
                 <div className="space-y-1.5"><label className="text-xs font-bold text-slate-600 uppercase">Data de Admissão</label><input required type="date" className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl text-base text-black" value={newPatientData.admissionDate} onChange={e => setNewPatientData({...newPatientData, admissionDate: e.target.value})} /></div>
-                <button type="submit" className="w-full bg-medical-600 text-white p-4 rounded-xl font-bold text-base uppercase shadow-lg">Salvar Cadastro</button>
+                <button type="submit" disabled={isLoading} className={`w-full ${isLoading ? 'bg-slate-400 cursor-not-allowed' : 'bg-medical-600 hover:bg-medical-700 shadow-lg'} text-white p-4 rounded-xl font-bold text-base uppercase transition-all`}>
+                  {isLoading ? 'Aguarde...' : 'Salvar Cadastro'}
+                </button>
               </form>
+            </div>
+          </div>
+        )}
+
+        {showTransferModal && selectedPatient && (
+          <div className="fixed inset-0 bg-slate-900/80 z-[100] flex items-center justify-center p-4 backdrop-blur-md">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xs p-6 space-y-5 text-center text-black">
+              <h3 className="font-bold text-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 mb-4"><ArrowRightLeft size={20} className="text-medical-600"/> Mudar Status/Setor</h3>
+              <div className="grid gap-2.5">
+                {['UTI', 'Enfermaria', 'Finalizados'].map(t => (
+                  <button key={t} onClick={() => setTransferTarget(t)} className={`p-3 border-2 rounded-xl text-center text-sm font-bold transition-all ${transferTarget === t ? 'border-medical-600 bg-medical-50 text-medical-800 shadow-md' : 'border-slate-100 text-slate-500'}`}>{t}</button>
+                ))}
+              </div>
+              <button onClick={handleConfirmTransfer} className="w-full bg-medical-600 text-white p-4 rounded-xl font-bold uppercase shadow-lg hover:bg-medical-700 transition-colors">Confirmar</button>
+              <button onClick={() => setShowTransferModal(false)} className="text-[10px] text-slate-400 font-bold uppercase py-2">Cancelar</button>
+            </div>
+          </div>
+        )}
+
+        {showFinalizedListModal && (
+          <div className="fixed inset-0 bg-slate-900/80 z-[100] flex items-center justify-center p-4 backdrop-blur-md">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col border border-slate-200 text-black">
+              <div className="bg-slate-900 p-4 text-white flex justify-between items-center">
+                <h3 className="font-bold text-sm uppercase tracking-widest flex items-center gap-3"><ArchiveRestore size={22} className="text-medical-400"/> Pacientes Finalizados</h3>
+                <button onClick={() => setShowFinalizedListModal(false)}><X size={28}/></button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-6">
+                {finalizedPatients.length > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {finalizedPatients.map(p => (
+                      <div key={p.id} className="bg-slate-50 border border-slate-200 rounded-2xl p-4 shadow-sm hover:shadow-md transition-all">
+                        <div className="flex justify-between items-start mb-3">
+                          <div>
+                            <h4 className="font-bold text-black uppercase text-[12px] leading-tight">{safeString(p.name)}</h4>
+                            <p className="text-[10px] text-slate-500 font-bold uppercase mt-1">Leito: {safeString(p.bedNumber)}</p>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button onClick={() => PatientService.updatePatient(p.id, { status: 'active', unit: 'UTI' }).then(() => loadPatients())} className="flex-1 bg-medical-600 text-white text-[9px] font-black p-2 rounded-lg hover:bg-medical-700 uppercase transition-all">Reabrir UTI</button>
+                          <button onClick={() => PatientService.updatePatient(p.id, { status: 'active', unit: 'Enfermaria' }).then(() => loadPatients())} className="flex-1 border border-medical-600 text-medical-600 text-[9px] font-black p-2 rounded-lg hover:bg-medical-50 uppercase transition-all">Reabrir Enf.</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-20 text-slate-300 uppercase font-black tracking-widest text-sm italic">Histórico de finalizados vazio</div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showAddLogModal && (
+          <div className="fixed inset-0 bg-slate-900/80 z-[100] flex items-center justify-center p-2 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[96vh] overflow-hidden flex flex-col border border-slate-200 text-black">
+              <div className="bg-slate-900 p-3 text-white flex justify-between items-center"><h3 className="font-bold text-sm uppercase flex items-center gap-3 px-4 tracking-widest"><ClipboardList size={24} className="text-medical-500"/> Registro Diário</h3><button onClick={() => setShowAddLogModal(false)} className="p-2 rounded-xl"><X size={32}/></button></div>
+              <div className="p-6 overflow-y-auto bg-white"><DailyLogForm initialData={editingLog || undefined} initialPrescriptions={selectedPatient?.medicalPrescription?.split('\n').filter(p => p.trim())} onSave={handleSaveLog} onCancel={() => setShowAddLogModal(false)} patientUnit={selectedPatient?.unit} /></div>
+            </div>
+          </div>
+        )}
+
+        {showPrintPreview && selectedPatient && <PatientPrintView patient={selectedPatient} onClose={() => setShowPrintPreview(false)} />}
+        {showPlantaoPrint && <PatientListPrintView patients={filteredPatients} unit={activeTab} onClose={() => setShowPlantaoPrint(false)} />}
+        
+        {maximizedAttachment && (
+          <div className="fixed inset-0 bg-black/95 z-[200] flex items-center justify-center p-4 backdrop-blur-md animate-in fade-in duration-300">
+            <button onClick={() => setMaximizedAttachment(null)} className="absolute top-6 right-6 text-white hover:text-red-500 transition-colors bg-white/10 p-2 rounded-full z-10"><X size={32}/></button>
+            <div className="w-full max-w-5xl max-h-full flex flex-col items-center gap-4">
+              {maximizedAttachment.type === 'image' ? (
+                <img src={maximizedAttachment.url} alt={maximizedAttachment.name} className="max-w-full max-h-[85vh] object-contain shadow-2xl rounded-lg border border-white/10" />
+              ) : (
+                <div className="bg-white p-12 rounded-3xl flex flex-col items-center gap-6 shadow-2xl">
+                   <FileText size={80} className="text-medical-600" />
+                   <p className="text-lg font-black uppercase text-slate-800">{maximizedAttachment.name}</p>
+                   <a href={maximizedAttachment.url} download={maximizedAttachment.name} className="bg-medical-600 text-white px-8 py-3 rounded-xl font-bold uppercase shadow-xl flex items-center gap-2"><Download size={20}/> Baixar Arquivo</a>
+                </div>
+              )}
             </div>
           </div>
         )}

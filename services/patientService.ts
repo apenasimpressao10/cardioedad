@@ -2,11 +2,24 @@
 import { supabase } from '../lib/supabase';
 import { Patient, DailyLog, Attachment, Device } from '../types';
 
+/**
+ * Converte erros em strings legíveis, evitando o problema de "[object Object]".
+ */
 const getErrorMessage = (error: any): string => {
   if (!error) return 'Erro desconhecido';
   if (typeof error === 'string') return error;
-  const message = error.message || error.error_description || (error.error && error.error.message);
-  return message ? message : JSON.stringify(error);
+  
+  // Tratamento para erro retornado pelo Supabase
+  if (error.message && typeof error.message === 'string') {
+    return error.message;
+  }
+  
+  // Tratamento para erro de rede ou objeto genérico
+  try {
+    return JSON.stringify(error);
+  } catch (e) {
+    return 'Erro complexo ao processar requisição';
+  }
 };
 
 // --- Mappers ---
@@ -22,12 +35,14 @@ const mapPatientFromDB = (p: any): Patient => ({
   admissionDate: p.admission_date || new Date().toISOString(),
   admissionHistory: p.admission_history || '',
   personalHistory: Array.isArray(p.personal_history) ? p.personal_history : [],
+  // Fix: Removed duplicate 'home_medications' property which is not in the Patient type
   homeMedications: Array.isArray(p.home_medications) ? p.home_medications : [],
   medicalPrescription: p.medical_prescription || '',
   vasoactiveDrugs: p.vasoactive_drugs || '',
   sedationAnalgesia: p.sedation_analgesia || '',
-  devices_list: Array.isArray(p.devices_list) ? p.devices_list : [],
-  ventilation: p.ventilation || { mode: 'Espontânea', fio2: '21', peep: '0', rate: '0', volume: '0', pressure: '0' },
+  devices_list: [], 
+  // Fornecemos um objeto default para ventilation já que a coluna não existe no banco
+  ventilation: { mode: 'Espontânea', fio2: '21', peep: '0', rate: '0', volume: '0', pressure: '0' },
   diagnosticHypotheses: Array.isArray(p.diagnostic_hypotheses) ? p.diagnostic_hypotheses : [],
   dailyLogs: p.daily_logs ? p.daily_logs.map(mapLogFromDB) : [],
   attachments: p.attachments ? p.attachments.map(mapAttachmentFromDB) : []
@@ -50,16 +65,24 @@ const mapAttachmentFromDB = (a: any): Attachment => ({
   type: a.type as 'image' | 'file',
   url: a.url,
   date: a.created_at || a.date,
-  status: 'active' // Valor virtual para UI, pois a coluna não existe no DB
+  status: 'active'
 });
 
 // --- Services ---
 
 export const fetchPatients = async (): Promise<Patient[]> => {
   try {
+    // Removemos 'ventilation' da seleção para evitar erro 42703
     const { data, error } = await supabase
       .from('patients')
-      .select(`*, daily_logs (*), attachments (*)`)
+      .select(`
+        id, name, age, gender, estimated_weight, bed_number, unit, status, 
+        admission_date, admission_history, personal_history, home_medications, 
+        medical_prescription, vasoactive_drugs, sedation_analgesia, 
+        diagnostic_hypotheses, created_at,
+        daily_logs (*), 
+        attachments (id, name, type, url, created_at)
+      `)
       .neq('status', 'deleted')
       .order('created_at', { ascending: false });
 
@@ -72,7 +95,8 @@ export const fetchPatients = async (): Promise<Patient[]> => {
 };
 
 export const createPatient = async (patientData: any): Promise<Patient | null> => {
-  const payload = {
+  // Payload seguro sem a coluna ventilation
+  const payload: any = {
     name: String(patientData.name || 'Novo Paciente').toUpperCase(),
     age: Number(patientData.age) || 0,
     gender: patientData.gender || 'Masculino',
@@ -87,33 +111,32 @@ export const createPatient = async (patientData: any): Promise<Patient | null> =
     medical_prescription: patientData.medicalPrescription || '',
     diagnostic_hypotheses: patientData.diagnosticHypotheses || [],
     vasoactive_drugs: patientData.vasoactiveDrugs || '',
-    sedation_analgesia: patientData.sedationAnalgesia || '',
-    devices_list: patientData.devices_list || [],
-    ventilation: patientData.ventilation || { mode: 'Espontânea', fio2: '21', peep: '0', rate: '0', volume: '0', pressure: '0' }
+    sedation_analgesia: patientData.sedationAnalgesia || ''
   };
+
   try {
     const { data, error } = await supabase.from('patients').insert(payload).select().single();
     if (error) throw error;
-    return { ...mapPatientFromDB(data), dailyLogs: [], attachments: [] };
+    return mapPatientFromDB(data);
   } catch (err) {
-    throw new Error(getErrorMessage(err));
+    const detailedError = getErrorMessage(err);
+    console.error('Falha na criação do paciente:', detailedError);
+    throw new Error(detailedError);
   }
 };
 
 export const updatePatient = async (patientId: string, updates: Partial<Patient>): Promise<void> => {
   const dbUpdates: any = {};
-  if (updates.name !== undefined) dbUpdates.name = updates.name;
+  if (updates.name !== undefined) dbUpdates.name = updates.name.toUpperCase();
   if (updates.age !== undefined) dbUpdates.age = Number(updates.age);
   if (updates.estimatedWeight !== undefined) dbUpdates.estimated_weight = Number(updates.estimatedWeight);
-  if (updates.bedNumber !== undefined) dbUpdates.bed_number = updates.bedNumber;
+  if (updates.bedNumber !== undefined) dbUpdates.bed_number = updates.bedNumber.toUpperCase();
   if (updates.unit !== undefined) dbUpdates.unit = updates.unit;
   if (updates.status !== undefined) dbUpdates.status = updates.status;
   if (updates.admissionDate !== undefined) dbUpdates.admission_date = updates.admissionDate;
   if (updates.medicalPrescription !== undefined) dbUpdates.medical_prescription = updates.medicalPrescription;
   if (updates.diagnosticHypotheses !== undefined) dbUpdates.diagnostic_hypotheses = updates.diagnosticHypotheses;
   if (updates.vasoactiveDrugs !== undefined) dbUpdates.vasoactive_drugs = updates.vasoactiveDrugs;
-  if (updates.devices_list !== undefined) dbUpdates.devices_list = updates.devices_list;
-  if (updates.ventilation !== undefined) dbUpdates.ventilation = updates.ventilation;
   if (updates.personalHistory !== undefined) dbUpdates.personal_history = updates.personalHistory;
   if (updates.homeMedications !== undefined) dbUpdates.home_medications = updates.homeMedications;
 
@@ -164,9 +187,13 @@ export const addAttachment = async (patientId: string, attachment: Omit<Attachme
       name: attachment.name,
       type: attachment.type,
       url: attachment.url
-      // 'status' removido aqui para evitar erro de esquema
     };
-    const { data, error } = await supabase.from('attachments').insert(payload).select().single();
+    const { data, error } = await supabase
+      .from('attachments')
+      .insert(payload)
+      .select('id, name, type, url, created_at')
+      .single();
+      
     if (error) throw error;
     return mapAttachmentFromDB(data);
   } catch (err) {
