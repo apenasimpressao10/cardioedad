@@ -50,7 +50,7 @@ const mapAttachmentFromDB = (a: any): Attachment => ({
   type: a.type as 'image' | 'file',
   url: a.url,
   date: a.created_at || a.date,
-  status: a.status || 'active'
+  status: 'active' // Como a coluna não existe no DB, mapeamos como ativo para interface
 });
 
 // --- Services ---
@@ -111,6 +111,7 @@ export const updatePatient = async (patientId: string, updates: Partial<Patient>
   if (updates.admissionDate !== undefined) dbUpdates.admission_date = updates.admissionDate;
   if (updates.medicalPrescription !== undefined) dbUpdates.medical_prescription = updates.medicalPrescription;
   if (updates.diagnosticHypotheses !== undefined) dbUpdates.diagnostic_hypotheses = updates.diagnosticHypotheses;
+  // Fix: use updates.vasoactiveDrugs instead of updates.vasoactive_drugs to align with the Patient interface
   if (updates.vasoactiveDrugs !== undefined) dbUpdates.vasoactive_drugs = updates.vasoactiveDrugs;
   if (updates.devices_list !== undefined) dbUpdates.devices_list = updates.devices_list;
   if (updates.ventilation !== undefined) dbUpdates.ventilation = updates.ventilation;
@@ -163,8 +164,7 @@ export const addAttachment = async (patientId: string, attachment: Omit<Attachme
       patient_id: patientId,
       name: attachment.name,
       type: attachment.type,
-      url: attachment.url,
-      status: 'active'
+      url: attachment.url
     };
     const { data, error } = await supabase.from('attachments').insert(payload).select().single();
     if (error) throw error;
@@ -175,13 +175,13 @@ export const addAttachment = async (patientId: string, attachment: Omit<Attachme
 };
 
 /**
- * Em vez de excluir fisicamente, inativa o anexo mudando seu status.
+ * Remove o anexo permanentemente, já que a coluna 'status' não está disponível.
  */
-export const inactivateAttachment = async (attachmentId: string) => {
+export const deleteAttachment = async (attachmentId: string) => {
   try {
     const { error } = await supabase
       .from('attachments')
-      .update({ status: 'inactive' })
+      .delete()
       .eq('id', attachmentId);
     if (error) throw error;
   } catch (err) {
